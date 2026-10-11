@@ -4,12 +4,13 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>PIXELTube</title>
+<link rel="icon" type="image/png" href="./logo.png" />
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
-  --bg:#0b0b0f; --surface:#14141a; --surface2:#1e1e26; --line:#282833;
-  --text:#f4f4f7; --muted:#9a9aab; --accent:#ff2d6f; --accent2:#7c4dff;
-  --ok:#00e0b8; --warn:#ffb020; --r:14px;
+  --bg:#0a0e1a; --surface:#0f1424; --surface2:#161d33; --line:#1f2a44;
+  --text:#f0f4ff; --muted:#8b98b8; --accent:#38bdf8; --accent2:#1d4ed8;
+  --ok:#22d3ee; --warn:#fbbf24; --r:14px;
 }
 html,body{height:100%}
 body{
@@ -22,32 +23,74 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 input,textarea,select{font-family:inherit}
 img{display:block}
 ::-webkit-scrollbar{width:10px;height:10px}
-::-webkit-scrollbar-thumb{background:#2c2c38;border-radius:20px}
+::-webkit-scrollbar-thumb{background:#2a3654;border-radius:20px}
 ::-webkit-scrollbar-track{background:transparent}
+
+/* ---------- LOADING SCREEN ---------- */
+#loader{
+  position:fixed;inset:0;z-index:5000;
+  background:radial-gradient(circle at 50% 40%, #0f1a35 0%, #050810 70%);
+  display:grid;place-items:center;
+  transition:opacity .4s ease, visibility .4s ease;
+}
+#loader.hide{opacity:0;visibility:hidden;pointer-events:none}
+#loader .inner{display:flex;flex-direction:column;align-items:center;gap:26px}
+#loader img{
+  width:110px;height:110px;object-fit:contain;
+  filter:drop-shadow(0 0 40px rgba(56,189,248,.55));
+  animation:pulse 2.4s ease-in-out infinite;
+}
+@keyframes pulse{
+  0%,100%{transform:scale(1);opacity:1}
+  50%{transform:scale(1.04);opacity:.92}
+}
+#loader .name{
+  font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+  font-size:24px;font-weight:700;letter-spacing:-.6px;
+}
+#loader .name b{
+  background:linear-gradient(90deg,var(--accent),var(--accent2));
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+}
+#loader .bar{
+  width:180px;height:4px;border-radius:99px;background:rgba(56,189,248,.12);
+  overflow:hidden;position:relative;
+}
+#loader .bar::after{
+  content:'';position:absolute;inset:0;
+  background:linear-gradient(90deg,transparent,var(--accent),transparent);
+  animation:slide 1.4s linear infinite;
+}
+@keyframes slide{
+  0%{transform:translateX(-100%)}
+  100%{transform:translateX(100%)}
+}
+#loader .status{
+  font-size:12px;color:var(--muted);letter-spacing:.3px;
+}
 
 /* TOPBAR */
 .topbar{
   height:56px;flex:none;display:flex;align-items:center;gap:10px;
   padding:0 14px;border-bottom:1px solid var(--line);
-  background:rgba(11,11,15,.96);backdrop-filter:blur(10px);z-index:50;
+  background:rgba(10,14,26,.96);backdrop-filter:blur(10px);z-index:50;
 }
 .icon-btn{width:40px;height:40px;border-radius:50%;display:grid;place-items:center;transition:background .15s;flex:none}
 .icon-btn:hover{background:var(--surface2)}
 .icon-btn svg{width:21px;height:21px;fill:currentColor}
 .logo{display:flex;align-items:center;gap:8px;flex:none;margin-right:6px}
 .logo-mark{
-  width:30px;height:30px;border-radius:9px;display:grid;place-items:center;
-  background:linear-gradient(135deg,var(--accent),var(--accent2));
-  box-shadow:0 0 18px rgba(255,45,111,.45);
+  width:36px;height:36px;border-radius:9px;display:grid;place-items:center;
+  overflow:hidden;
 }
-.logo-mark svg{width:15px;height:15px;fill:#fff;margin-left:2px}
+.logo-mark img{width:100%;height:100%;object-fit:contain}
 .logo-text{font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace;font-size:19px;font-weight:700;letter-spacing:-.6px}
 .logo-text b{background:linear-gradient(90deg,var(--accent),var(--accent2));-webkit-background-clip:text;background-clip:text;color:transparent}
 .search{
   flex:1;max-width:620px;margin:0 auto;display:flex;align-items:center;gap:8px;
   background:var(--surface);border:1px solid var(--line);border-radius:99px;padding:0 6px 0 16px;height:40px;
 }
-.search:focus-within{border-color:var(--accent2);box-shadow:0 0 0 3px rgba(124,77,255,.15)}
+.search:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px rgba(56,189,248,.15)}
 .search svg{width:18px;height:18px;fill:var(--muted);flex:none}
 .search input{flex:1;background:none;border:none;outline:none;color:var(--text);font-size:14px}
 .search input::placeholder{color:var(--muted)}
@@ -55,8 +98,8 @@ img{display:block}
   font-size:11px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;
   padding:5px 10px;border-radius:99px;border:1px solid var(--line);color:var(--muted);white-space:nowrap;
 }
-.status-pill.live{color:var(--ok);border-color:rgba(0,224,184,.35);background:rgba(0,224,184,.08)}
-.status-pill.local{color:var(--warn);border-color:rgba(255,176,32,.35);background:rgba(255,176,32,.08)}
+.status-pill.live{color:var(--ok);border-color:rgba(34,211,238,.35);background:rgba(34,211,238,.08)}
+.status-pill.local{color:var(--warn);border-color:rgba(251,191,36,.35);background:rgba(251,191,36,.08)}
 
 #authSlot{display:flex;align-items:center;flex:none;position:relative}
 .signin-btn{
@@ -65,7 +108,7 @@ img{display:block}
   color:#fff;font-weight:800;font-size:13px;letter-spacing:.2px;
   padding:9px 16px;border-radius:99px;white-space:nowrap;
   transition:filter .15s, transform .12s;
-  box-shadow:0 4px 16px -4px rgba(255,45,111,.6);
+  box-shadow:0 4px 16px -4px rgba(56,189,248,.6);
 }
 .signin-btn:hover{filter:brightness(1.1)}
 .signin-btn:active{transform:scale(.97)}
@@ -76,7 +119,7 @@ img{display:block}
   background:var(--surface2);border:1px solid var(--line);
   transition:background .15s;max-width:220px;
 }
-.user-chip:hover{background:#2a2a36}
+.user-chip:hover{background:#1d2642}
 .user-chip .pic{width:30px;height:30px;border-radius:50%;flex:none;display:grid;place-items:center;font-size:15px;overflow:hidden}
 .user-chip .pic img{width:100%;height:100%;object-fit:cover}
 .user-chip .nm{font-size:13px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -109,7 +152,7 @@ img{display:block}
 .sidebar h4{font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);padding:16px 12px 8px}
 .nav{display:flex;align-items:center;gap:14px;padding:10px 12px;border-radius:11px;font-size:14px;font-weight:500;transition:background .13s}
 .nav:hover{background:var(--surface2)}
-.nav.active{background:var(--surface2);font-weight:700}
+.nav.active{background:var(--surface2);font-weight:700;color:var(--accent)}
 .nav svg{width:20px;height:20px;fill:currentColor;flex:none}
 .nav .count{margin-left:auto;font-size:12px;color:var(--muted);font-weight:600}
 .sub-row,.pl-row{display:flex;align-items:center;gap:12px;padding:8px 12px;border-radius:11px;font-size:14px}
@@ -129,36 +172,26 @@ img{display:block}
 .main{flex:1;min-width:0;overflow-y:auto;scroll-behavior:smooth}
 .main.snap{scroll-snap-type:y mandatory}
 
-/* PAGE HEAD */
 .page-head{padding:22px 24px 0;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
 .page-head h1{font-size:23px;font-weight:800;letter-spacing:-.4px}
 .page-head p{color:var(--muted);font-size:13px}
-
-/* GRID */
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(272px,1fr));gap:26px 16px;padding:20px 24px 40px}
 .card{display:block;border-radius:var(--r)}
 .card .thumb{
   position:relative;aspect-ratio:16/9;border-radius:13px;overflow:hidden;
-  background:linear-gradient(135deg,#1d1d28,#2c2c3d);transition:transform .18s, box-shadow .18s;
+  background:linear-gradient(135deg,#151d33,#1e2a4a);transition:transform .18s, box-shadow .18s;
 }
-.card:hover .thumb{transform:translateY(-3px);box-shadow:0 12px 30px -12px rgba(0,0,0,.9)}
+.card:hover .thumb{transform:translateY(-3px);box-shadow:0 12px 30px -12px rgba(56,189,248,.4)}
 .card .thumb img{width:100%;height:100%;object-fit:cover}
-.card .thumb .placeholder{
-  position:absolute;inset:0;display:grid;place-items:center;
-  color:#3a3a4a;font-size:34px;
-}
+.card .thumb .placeholder{position:absolute;inset:0;display:grid;place-items:center;color:#3a4a6a;font-size:34px}
 .card .dur{position:absolute;right:7px;bottom:7px;background:rgba(0,0,0,.85);padding:2px 6px;border-radius:6px;font-size:11.5px;font-weight:700}
-.card .kind{position:absolute;left:7px;top:7px;background:linear-gradient(135deg,var(--accent),var(--accent2));padding:3px 8px;border-radius:99px;font-size:10px;font-weight:800;letter-spacing:.6px}
 .card .info{display:flex;gap:11px;padding:11px 4px 0}
 .card h3{font-size:14.5px;font-weight:700;line-height:1.35;margin-bottom:5px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .card .sub{font-size:12.5px;color:var(--muted);line-height:1.5}
 .card .sub:hover{color:var(--text)}
 
-/* SHORTS SHELF */
 .shorts-shelf{padding:10px 24px 6px}
-.shorts-shelf .shelf-head{
-  display:flex;align-items:center;gap:10px;margin-bottom:14px;
-}
+.shorts-shelf .shelf-head{display:flex;align-items:center;gap:10px;margin-bottom:14px}
 .shorts-shelf .shelf-head .icon{
   width:30px;height:30px;border-radius:9px;display:grid;place-items:center;
   background:linear-gradient(135deg,var(--accent),var(--accent2));
@@ -170,17 +203,11 @@ img{display:block}
   gap:12px;overflow-x:auto;padding-bottom:14px;scroll-snap-type:x mandatory;
 }
 .shorts-rail::-webkit-scrollbar{height:8px}
-.short-card{
-  scroll-snap-align:start;display:block;border-radius:12px;overflow:hidden;
-  transition:transform .18s;
-}
+.short-card{scroll-snap-align:start;display:block;border-radius:12px;overflow:hidden;transition:transform .18s}
 .short-card:hover{transform:translateY(-3px)}
-.short-card .t{
-  position:relative;aspect-ratio:9/16;border-radius:12px;overflow:hidden;
-  background:linear-gradient(135deg,#1d1d28,#2c2c3d);
-}
+.short-card .t{position:relative;aspect-ratio:9/16;border-radius:12px;overflow:hidden;background:linear-gradient(135deg,#151d33,#1e2a4a)}
 .short-card .t img{width:100%;height:100%;object-fit:cover}
-.short-card .t .placeholder{position:absolute;inset:0;display:grid;place-items:center;color:#3a3a4a;font-size:30px}
+.short-card .t .placeholder{position:absolute;inset:0;display:grid;place-items:center;color:#3a4a6a;font-size:30px}
 .short-card .t .badge{
   position:absolute;left:8px;top:8px;
   background:linear-gradient(135deg,var(--accent),var(--accent2));
@@ -199,26 +226,22 @@ img{display:block}
 }
 .short-card .sub{font-size:11.5px;color:var(--muted);margin:0 2px}
 
-/* WATCH */
 .watch{display:grid;grid-template-columns:minmax(0,1fr) 372px;gap:26px;padding:22px 24px 60px;max-width:1560px;margin:0 auto}
 @media(max-width:1120px){.watch{grid-template-columns:1fr;padding:16px}}
 .player{width:100%;aspect-ratio:16/9;background:#000;border-radius:var(--r);overflow:hidden;border:1px solid var(--line);position:relative}
 .player video{width:100%;height:100%;display:block;background:#000}
-.player .loading{
-  position:absolute;inset:0;display:grid;place-items:center;
-  color:var(--muted);font-size:13px;background:#000;
-}
+.player .loading{position:absolute;inset:0;display:grid;place-items:center;color:var(--muted);font-size:13px;background:#000}
 .w-title{font-size:20px;font-weight:800;line-height:1.35;margin:16px 0 12px;letter-spacing:-.3px}
 .w-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding-bottom:16px;border-bottom:1px solid var(--line)}
 .w-chan{display:flex;align-items:center;gap:12px;margin-right:auto;min-width:0}
 .w-chan .nm{font-weight:700;font-size:14.5px}
 .w-chan .sb{font-size:12px;color:var(--muted)}
 .btn-sub{background:#fff;color:#0b0b0f;font-weight:800;font-size:13.5px;padding:9px 18px;border-radius:99px;transition:.15s;white-space:nowrap}
-.btn-sub:hover{background:#dcdce4}
+.btn-sub:hover{background:#cfe4ff}
 .btn-sub.subbed{background:var(--surface2);color:var(--text);border:1px solid var(--line)}
-.btn-sub.subbed:hover{background:#2a2a36}
+.btn-sub.subbed:hover{background:#1d2642}
 .pill{display:inline-flex;align-items:center;gap:8px;background:var(--surface2);border:1px solid var(--line);border-radius:99px;padding:9px 16px;font-size:13.5px;font-weight:700;transition:.15s}
-.pill:hover{background:#2a2a36}
+.pill:hover{background:#1d2642}
 .pill svg{width:18px;height:18px;fill:currentColor}
 .pill.active{background:linear-gradient(135deg,var(--accent),var(--accent2));border-color:transparent;color:#fff}
 .desc{margin-top:16px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px;font-size:13.5px;line-height:1.7;white-space:pre-line}
@@ -226,14 +249,13 @@ img{display:block}
 .upnext h2{font-size:15px;font-weight:800;margin-bottom:14px}
 .mini-card{display:flex;gap:10px;margin-bottom:12px;border-radius:10px;padding:4px;transition:background .14s}
 .mini-card:hover{background:var(--surface)}
-.mini-card .t{position:relative;width:158px;flex:none;aspect-ratio:16/9;border-radius:10px;overflow:hidden;background:#1d1d28}
+.mini-card .t{position:relative;width:158px;flex:none;aspect-ratio:16/9;border-radius:10px;overflow:hidden;background:#151d33}
 .mini-card .t img{width:100%;height:100%;object-fit:cover}
-.mini-card .t .placeholder{position:absolute;inset:0;display:grid;place-items:center;color:#3a3a4a;font-size:22px}
+.mini-card .t .placeholder{position:absolute;inset:0;display:grid;place-items:center;color:#3a4a6a;font-size:22px}
 .mini-card .t .dur{position:absolute;right:5px;bottom:5px;background:rgba(0,0,0,.85);padding:1px 5px;border-radius:5px;font-size:10.5px;font-weight:700}
 .mini-card h4{font-size:13px;font-weight:700;line-height:1.35;margin-bottom:4px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .mini-card .sub{font-size:11.5px;color:var(--muted)}
 
-/* COMMENTS */
 .comments{margin-top:24px}
 .comments h2{font-size:16px;font-weight:800;margin-bottom:14px}
 .comment-form{display:flex;gap:10px;margin-bottom:20px;align-items:flex-start}
@@ -245,7 +267,7 @@ img{display:block}
   color:var(--text);font-size:14px;padding:8px 4px;outline:none;resize:none;min-height:40px;
   font-family:inherit;
 }
-.comment-form textarea:focus{border-bottom-color:var(--accent2)}
+.comment-form textarea:focus{border-bottom-color:var(--accent)}
 .comment-form .actions{display:flex;justify-content:flex-end;gap:8px;margin-top:10px}
 .btn-primary{
   background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;
@@ -264,7 +286,6 @@ img{display:block}
 .comment .text{font-size:13.5px;line-height:1.55;white-space:pre-wrap;word-break:break-word}
 .no-comments{color:var(--muted);font-size:13.5px;padding:14px 0}
 
-/* MINIS FEED */
 .mini{height:calc(100vh - 56px);scroll-snap-align:start;display:grid;place-items:center}
 .mini-inner{position:relative;width:min(432px,100%);height:100%;background:#000;overflow:hidden}
 @media(min-width:900px){.mini{padding:16px 0}.mini-inner{height:100%;border-radius:20px;border:1px solid var(--line)}}
@@ -283,16 +304,22 @@ img{display:block}
 .mini .bottom h3{font-size:14px;font-weight:600;line-height:1.45;color:#fff;text-shadow:0 1px 6px rgba(0,0,0,.7)}
 .mini .bottom .views{color:rgba(255,255,255,.8);font-size:12px;margin-top:4px}
 .mute-btn{position:absolute;top:14px;right:14px;width:38px;height:38px;border-radius:50%;background:rgba(0,0,0,.45);backdrop-filter:blur(6px);font-size:16px;display:grid;place-items:center;color:#fff}
+.mini .mini-close{
+  position:absolute;top:14px;left:14px;z-index:5;
+  width:38px;height:38px;border-radius:50%;
+  background:rgba(0,0,0,.45);backdrop-filter:blur(6px);
+  display:grid;place-items:center;color:#fff;font-size:15px;font-weight:700;
+  text-decoration:none;
+}
+.mini .mini-close:hover{background:rgba(0,0,0,.65)}
 
-/* CHANNEL */
 .banner{height:170px;border-radius:0 0 18px 18px;position:relative;overflow:hidden;background-size:cover;background-position:center}
-.banner::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,transparent,rgba(11,11,15,.85))}
+.banner::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,transparent,rgba(10,14,26,.85))}
 .chan-head{display:flex;align-items:center;gap:20px;padding:20px 24px 6px;flex-wrap:wrap}
 .chan-head .txt{flex:1;min-width:200px}
 .chan-head h1{font-size:26px;font-weight:900;letter-spacing:-.5px}
 .chan-head .meta{color:var(--muted);font-size:13.5px;margin-top:6px}
 
-/* FORMS */
 .form-wrap{max-width:640px;margin:0 auto;padding:32px 24px 60px}
 .form-wrap h1{font-size:24px;font-weight:900;margin-bottom:6px;letter-spacing:-.4px}
 .form-wrap .lede{color:var(--muted);font-size:13.5px;margin-bottom:22px;line-height:1.6}
@@ -304,14 +331,13 @@ img{display:block}
   font-family:inherit;
 }
 .field textarea{resize:vertical;min-height:110px;line-height:1.55}
-.field input:focus,.field textarea:focus,.field select:focus{border-color:var(--accent2);box-shadow:0 0 0 3px rgba(124,77,255,.15)}
+.field input:focus,.field textarea:focus,.field select:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(56,189,248,.15)}
 .form-row{display:grid;grid-template-columns:1fr 1fr;gap:14px}
 @media(max-width:600px){.form-row{grid-template-columns:1fr}}
 .form-actions{display:flex;justify-content:flex-end;gap:12px;margin-top:26px}
 .btn-secondary{border:1px solid var(--line);border-radius:99px;padding:11px 22px;font-weight:700;font-size:13.5px;color:var(--text);transition:.15s}
 .btn-secondary:hover{background:var(--surface2)}
 
-/* SOURCE TABS */
 .source-tabs{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}
 .source-tab{
   flex:1;min-width:120px;padding:10px 14px;border-radius:11px;font-size:13px;font-weight:700;
@@ -323,83 +349,40 @@ img{display:block}
   border-color:transparent;color:#fff;
 }
 
-/* DROPZONE */
 .dropzone{
   position:relative;border:2px dashed var(--line);border-radius:14px;
   padding:34px 22px;text-align:center;transition:.18s;cursor:pointer;
   background:var(--surface);
 }
-.dropzone:hover,.dropzone.drag{border-color:var(--accent2);background:rgba(124,77,255,.06)}
-.dropzone.has-file{border-style:solid;border-color:var(--ok);background:rgba(0,224,184,.05)}
+.dropzone:hover,.dropzone.drag{border-color:var(--accent);background:rgba(56,189,248,.06)}
+.dropzone.has-file{border-style:solid;border-color:var(--ok);background:rgba(34,211,238,.05)}
 .dropzone .dz-icon{font-size:36px;margin-bottom:10px;opacity:.75}
 .dropzone .dz-title{font-size:14px;font-weight:700;margin-bottom:4px}
 .dropzone .dz-sub{font-size:12px;color:var(--muted)}
-.dropzone .dz-file{
-  display:flex;align-items:center;gap:12px;text-align:left;justify-content:center;
-  margin-top:6px;
-}
+.dropzone .dz-file{display:flex;align-items:center;gap:12px;text-align:left;justify-content:center;margin-top:6px}
 .dropzone .dz-file .nm{font-size:13.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:280px}
 .dropzone .dz-file .sz{font-size:11.5px;color:var(--muted)}
 .dropzone input[type=file]{display:none}
-.progress{
-  height:8px;background:var(--surface2);border-radius:99px;overflow:hidden;margin-top:12px;
-}
-.progress .bar{
-  height:100%;width:0;background:linear-gradient(90deg,var(--accent),var(--accent2));
-  transition:width .2s;
-}
+.progress{height:8px;background:var(--surface2);border-radius:99px;overflow:hidden;margin-top:12px}
+.progress .bar{height:100%;width:0;background:linear-gradient(90deg,var(--accent),var(--accent2));transition:width .2s}
 .progress .lbl{font-size:12px;color:var(--muted);margin-top:8px;text-align:center}
-.size-warn{
-  font-size:12.5px;color:var(--warn);background:rgba(255,176,32,.08);
-  border:1px solid rgba(255,176,32,.3);border-radius:10px;padding:10px 14px;margin-top:12px;
-}
-.info-note{
-  font-size:12.5px;color:var(--muted);background:var(--surface2);
-  border-radius:10px;padding:10px 14px;line-height:1.55;
-}
+.size-warn{font-size:12.5px;color:var(--warn);background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.3);border-radius:10px;padding:10px 14px;margin-top:12px}
+.info-note{font-size:12.5px;color:var(--muted);background:var(--surface2);border-radius:10px;padding:10px 14px;line-height:1.55}
 
-/* THUMB PREVIEW */
-.thumb-preview{
-  margin-bottom:14px;border-radius:12px;overflow:hidden;border:1px solid var(--line);
-  aspect-ratio:16/9;background:#1a1a22;position:relative;
-}
+.thumb-preview{margin-bottom:14px;border-radius:12px;overflow:hidden;border:1px solid var(--line);aspect-ratio:16/9;background:#0f1526;position:relative}
 .thumb-preview img{width:100%;height:100%;object-fit:cover;display:block}
-.thumb-preview .empty{
-  position:absolute;inset:0;display:grid;place-items:center;
-  color:var(--muted);font-size:13px;text-align:center;padding:20px;
-}
-.thumb-preview .badge{
-  position:absolute;left:10px;top:10px;
-  background:rgba(0,0,0,.7);backdrop-filter:blur(6px);
-  color:#fff;font-size:11px;font-weight:800;letter-spacing:.4px;
-  padding:4px 9px;border-radius:99px;text-transform:uppercase;
-}
+.thumb-preview .empty{position:absolute;inset:0;display:grid;place-items:center;color:var(--muted);font-size:13px;text-align:center;padding:20px}
+.thumb-preview .badge{position:absolute;left:10px;top:10px;background:rgba(0,0,0,.7);backdrop-filter:blur(6px);color:#fff;font-size:11px;font-weight:800;letter-spacing:.4px;padding:4px 9px;border-radius:99px;text-transform:uppercase}
 
-/* AVATAR PREVIEW */
-.avatar-preview{
-  display:flex;align-items:center;gap:16px;margin-bottom:14px;
-}
-.avatar-preview .av{
-  width:72px;height:72px;border-radius:50%;overflow:hidden;flex:none;
-  display:grid;place-items:center;font-weight:900;font-size:28px;color:#fff;
-  background:linear-gradient(135deg,var(--accent),var(--accent2));
-  border:2px solid var(--line);
-}
+.avatar-preview{display:flex;align-items:center;gap:16px;margin-bottom:14px}
+.avatar-preview .av{width:72px;height:72px;border-radius:50%;overflow:hidden;flex:none;display:grid;place-items:center;font-weight:900;font-size:28px;color:#fff;background:linear-gradient(135deg,var(--accent),var(--accent2));border:2px solid var(--line)}
 .avatar-preview .av img{width:100%;height:100%;object-fit:cover}
 .avatar-preview .meta{flex:1;min-width:0}
 .avatar-preview .meta strong{display:block;font-size:16px;font-weight:800}
 .avatar-preview .meta small{color:var(--muted);font-size:12.5px}
 
-/* PLAYLIST */
-.playlist-header{
-  padding:22px 24px 10px;
-  display:flex;gap:20px;align-items:flex-end;flex-wrap:wrap;
-}
-.playlist-cover{
-  width:220px;aspect-ratio:16/9;border-radius:14px;overflow:hidden;flex:none;
-  background:linear-gradient(135deg,var(--accent),var(--accent2));
-  display:grid;place-items:center;
-}
+.playlist-header{padding:22px 24px 10px;display:flex;gap:20px;align-items:flex-end;flex-wrap:wrap}
+.playlist-cover{width:220px;aspect-ratio:16/9;border-radius:14px;overflow:hidden;flex:none;background:linear-gradient(135deg,var(--accent),var(--accent2));display:grid;place-items:center}
 .playlist-cover svg{width:60px;height:60px;fill:rgba(255,255,255,.9)}
 .playlist-header .txt{flex:1;min-width:200px}
 .playlist-header h1{font-size:28px;font-weight:900;letter-spacing:-.5px;margin-bottom:8px}
@@ -408,38 +391,24 @@ img{display:block}
 .pl-item{display:flex;gap:14px;padding:8px;border-radius:12px;transition:background .15s;align-items:center}
 .pl-item:hover{background:var(--surface)}
 .pl-item .idx{width:24px;text-align:center;color:var(--muted);font-size:13px;font-weight:700;flex:none}
-.pl-item .t{position:relative;width:150px;flex:none;aspect-ratio:16/9;border-radius:10px;overflow:hidden;background:#1d1d28}
+.pl-item .t{position:relative;width:150px;flex:none;aspect-ratio:16/9;border-radius:10px;overflow:hidden;background:#151d33}
 .pl-item .t img{width:100%;height:100%;object-fit:cover}
-.pl-item .t .placeholder{position:absolute;inset:0;display:grid;place-items:center;color:#3a3a4a;font-size:22px}
+.pl-item .t .placeholder{position:absolute;inset:0;display:grid;place-items:center;color:#3a4a6a;font-size:22px}
 .pl-item .t .dur{position:absolute;right:5px;bottom:5px;background:rgba(0,0,0,.85);padding:1px 5px;border-radius:5px;font-size:10.5px;font-weight:700}
 .pl-item .info{flex:1;min-width:0}
 .pl-item h4{font-size:14px;font-weight:700;line-height:1.35;margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pl-item .sub{font-size:12px;color:var(--muted)}
-.pl-item .remove{
-  padding:8px 12px;border-radius:9px;color:var(--muted);font-size:12.5px;font-weight:600;
-  flex:none;
-}
-.pl-item .remove:hover{background:rgba(255,45,111,.15);color:var(--accent)}
+.pl-item .remove{padding:8px 12px;border-radius:9px;color:var(--muted);font-size:12.5px;font-weight:600;flex:none}
+.pl-item .remove:hover{background:rgba(56,189,248,.15);color:var(--accent)}
 
-/* MODAL */
-.modal-backdrop{
-  position:fixed;inset:0;background:rgba(0,0,0,.75);backdrop-filter:blur(6px);
-  display:grid;place-items:center;z-index:300;padding:20px;
-}
-.modal{
-  background:var(--surface);border:1px solid var(--line);border-radius:18px;
-  width:100%;max-width:440px;padding:24px;max-height:90vh;overflow-y:auto;
-}
+.modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.75);backdrop-filter:blur(6px);display:grid;place-items:center;z-index:300;padding:20px}
+.modal{background:var(--surface);border:1px solid var(--line);border-radius:18px;width:100%;max-width:440px;padding:24px;max-height:90vh;overflow-y:auto}
 .modal h2{font-size:19px;font-weight:900;margin-bottom:6px;letter-spacing:-.3px}
 .modal .lede{color:var(--muted);font-size:13px;margin-bottom:20px;line-height:1.55}
 .modal .form-actions{margin-top:22px}
-.modal .close{
-  position:absolute;top:14px;right:14px;width:34px;height:34px;border-radius:50%;
-  display:grid;place-items:center;color:var(--muted);
-}
+.modal .close{position:absolute;top:14px;right:14px;width:34px;height:34px;border-radius:50%;display:grid;place-items:center;color:var(--muted)}
 .modal-wrap{position:relative}
 
-/* EMPTY */
 .empty{padding:80px 24px;text-align:center;color:var(--muted)}
 .empty .big{font-size:46px;margin-bottom:14px}
 .empty h2{color:var(--text);font-size:19px;margin-bottom:8px;font-weight:800}
@@ -469,12 +438,22 @@ img{display:block}
 </head>
 <body>
 
+<!-- ============ LOADING SCREEN ============ -->
+<div id="loader">
+  <div class="inner">
+    <img src="./logo.png" alt="PIXELTube" />
+    <div class="name"><b>PIXEL</b>Tube</div>
+    <div class="bar"></div>
+    <div class="status" id="loaderStatus">Connecting to Firebase…</div>
+  </div>
+</div>
+
 <header class="topbar">
-  <button class="icon-btn" data-action="menu" aria-label="Menu">
+  <button class="icon-btn" data-action="menu" aria-label="Menu" type="button">
     <svg viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
   </button>
   <a class="logo" href="#/">
-    <span class="logo-mark"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></span>
+    <span class="logo-mark"><img src="./logo.png" alt="PIXELTube" /></span>
     <span class="logo-text"><b>PIXEL</b>Tube</span>
   </a>
   <div class="search">
@@ -493,2093 +472,6 @@ img{display:block}
 <div id="toast"></div>
 <div id="modalRoot"></div>
 
-<script type="module">
-/* ============================================================
-   PIXELTube — Firebase Realtime DB + PIXLECT popup auth
-   ============================================================ */
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import {
-  getDatabase, ref, onValue, get, set, remove, update, runTransaction, push
-} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
-
-/* ---------- FIREBASE CONFIG ---------- */
-const FIREBASE_CONFIG = {
-  apiKey: "AIzaSyDGIlsepztfV5Puuqu2ZFuyghS6VQ-MbQo",
-  authDomain: "pixgpt-cf8e9.firebaseapp.com",
-  databaseURL: "https://pixgpt-cf8e9-default-rtdb.firebaseio.com",
-  projectId: "pixgpt-cf8e9",
-  storageBucket: "pixgpt-cf8e9.firebasestorage.app",
-  messagingSenderId: "553975841772",
-  appId: "1:553975841772:web:5c7013ad266487da6836c9"
-};
-
-/* ============================================================
-   PIXLECT AUTH
-   ============================================================ */
-const PIXLECT = {
-  AUTH_URL: 'http://www.account.pixlect-studios.com/?app=PixelTube&mode=popup',
-  ORIGIN:   'http://www.account.pixlect-studios.com',
-  APP:      'PixelTube',
-  user:     null
-};
-
-try {
-  const raw = localStorage.getItem('pixeltube_pixlect');
-  if (raw) PIXLECT.user = JSON.parse(raw);
-} catch (_) {}
-
-function getLocalUid() {
-  let u = localStorage.getItem('pixeltube_uid');
-  if (!u) {
-    u = 'u_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
-    localStorage.setItem('pixeltube_uid', u);
-  }
-  return u;
-}
-
-function pixlectSignIn() {
-  const w = 520, h = 640;
-  const left = (screen.width  - w) / 2;
-  const top  = (screen.height - h) / 2;
-  window.open(PIXLECT.AUTH_URL, 'pixlect-auth',
-    `width=${w},height=${h},left=${left},top=${top},popup=yes,resizable=yes,scrollbars=yes`);
-}
-
-function pixlectSignOut() {
-  PIXLECT.user = null;
-  localStorage.removeItem('pixeltube_pixlect');
-  state.uid = getLocalUid();
-  reloadUserScopedData();
-  renderTopbar();
-  renderSidebar();
-  render(true);
-  toast('Signed out');
-}
-
-function handlePixlectMessage(d) {
-  if (!d || typeof d !== 'object') return false;
-  console.log('[PIXLECT] message received:', d);
-
-  let user = null;
-  if (d.type === 'PIXLECT_AUTH' && d.app === PIXLECT.APP && d.status === 'success' && d.user) user = d.user;
-  else if (d.source === 'pixlect' && d.user) user = d.user;
-  else if (d.username && (d.uid || d.id)) user = { username: d.username, uid: d.uid || d.id, icon: d.icon };
-  else if (d.payload && d.payload.user) user = d.payload.user;
-
-  if (!user) return false;
-
-  const clean = {
-    username: String(user.username || user.name || 'user'),
-    uid:      String(user.uid || user.id || ''),
-    icon:     user.icon || { bg: '#7c4dff', emoji: '👤' }
-  };
-  if (!clean.uid) return false;
-
-  PIXLECT.user = clean;
-  localStorage.setItem('pixeltube_pixlect', JSON.stringify(clean));
-
-  state.uid = 'pl_' + clean.uid;
-  reloadUserScopedData();
-  renderTopbar();
-  renderSidebar();
-  render(true);
-  toast('Signed in as ' + clean.username);
-  return true;
-}
-
-window.addEventListener('message', (ev) => {
-  const okOrigin =
-    ev.origin === 'http://www.account.pixlect-studios.com' ||
-    ev.origin === 'https://www.account.pixlect-studios.com' ||
-    ev.origin === 'http://account.pixlect-studios.com' ||
-    ev.origin === 'https://account.pixlect-studios.com';
-  if (!okOrigin) return;
-  handlePixlectMessage(ev.data);
-});
-
-/* ============================================================
-   STATE
-   ============================================================ */
-const state = {
-  uid: PIXLECT.user ? ('pl_' + PIXLECT.user.uid) : getLocalUid(),
-  mode: 'connecting',
-  videos: {}, channels: {}, playlists: {}, subs: {}, likes: {},
-  search: '', route: ['home'],
-  viewedThisSession: new Set()
-};
-let db = null;
-let localDB = null;
-let lastData = null;
-let commentsUnsub = null;
-const srcCache = {};
-
-/* ---------- HELPERS ---------- */
-const $  = (s, r = document) => r.querySelector(s);
-const $$ = (s, r = document) => [...r.querySelectorAll(s)];
-const esc = s => String(s ?? '').replace(/[&<>"']/g, c =>
-  ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
-const initial = s => (s || '?').trim().charAt(0).toUpperCase();
-
-function fmt(n) {
-  n = Number(n) || 0;
-  if (n >= 1e9) return (n / 1e9).toFixed(1).replace(/\.0$/, '') + 'B';
-  if (n >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, '') + 'M';
-  if (n >= 1e3) return (n / 1e3).toFixed(1).replace(/\.0$/, '') + 'K';
-  return String(n);
-}
-function fmtBytes(n) {
-  if (!n) return '0 B';
-  if (n < 1024) return n + ' B';
-  if (n < 1048576) return (n / 1024).toFixed(1) + ' KB';
-  return (n / 1048576).toFixed(1) + ' MB';
-}
-function timeAgo(ts) {
-  if (!ts) return 'just now';
-  const s = Math.floor((Date.now() - ts) / 1000);
-  if (s < 5)     return 'just now';
-  if (s < 60)    return s + 's ago';
-  if (s < 3600)  return Math.floor(s / 60) + 'm ago';
-  if (s < 86400) return Math.floor(s / 3600) + 'h ago';
-  if (s < 2592000) return Math.floor(s / 86400) + 'd ago';
-  if (s < 31536000) return Math.floor(s / 2592000) + 'mo ago';
-  return Math.floor(s / 31536000) + 'y ago';
-}
-function parseDuration(str) {
-  if (!str) return 0;
-  const parts = String(str).split(':').map(p => parseInt(p, 10) || 0);
-  if (parts.length === 3) return parts[0]*3600 + parts[1]*60 + parts[2];
-  if (parts.length === 2) return parts[0]*60 + parts[1];
-  return parts[0] || 0;
-}
-
-const subsOf   = cid => (state.channels[cid]?.subs) || 0;
-const likesOf  = vid => (state.videos[vid]?.likes) || 0;
-const viewsOf  = vid => (state.videos[vid]?.views) || 0;
-const isSubbed = cid => !!state.subs[cid];
-const isLiked  = vid => !!state.likes[vid];
-const chanOf   = vid => state.channels[state.videos[vid]?.channelId] || { name: 'Unknown', color: '#555' };
-
-function avatarHTML(c, cls = '') {
-  if (c?.avatar) {
-    return `<span class="avatar ${cls}"><img src="${esc(c.avatar)}" alt=""></span>`;
-  }
-  return `<span class="avatar ${cls}" style="background:${esc(c?.color || '#666')}">${esc(initial(c?.name))}</span>`;
-}
-function userAvatarHTML(user, cls = '') {
-  if (user?.icon?.avatar) return `<span class="avatar ${cls}"><img src="${esc(user.icon.avatar)}" alt=""></span>`;
-  return `<span class="avatar ${cls}" style="background:${esc(user?.icon?.bg || '#666')}">${esc(user?.icon?.emoji || initial(user?.username))}</span>`;
-}
-function thumbHTML(v) {
-  if (v.thumb) {
-    return `<img src="${esc(v.thumb)}" alt="" loading="lazy"
-                 crossorigin="anonymous" referrerpolicy="no-referrer"
-                 onerror="this.parentElement.insertAdjacentHTML('beforeend','<div class=\\'placeholder\\'>🎬</div>');this.remove()">`;
-  }
-  return `<div class="placeholder">🎬</div>`;
-}
-
-function videosSorted() {
-  return Object.values(state.videos).sort((a, b) => (b.createdAt || b.ord || 0) - (a.createdAt || a.ord || 0));
-}
-function minisSorted() {
-  return videosSorted().filter(v => v.kind === 'mini');
-}
-function longsSorted() {
-  return videosSorted().filter(v => v.kind !== 'mini');
-}
-
-let toastTimer;
-function toast(msg) {
-  const t = $('#toast');
-  t.textContent = msg;
-  t.classList.add('show');
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.remove('show'), 2600);
-}
-
-/* ============================================================
-   MODAL
-   ============================================================ */
-function openModal(html) {
-  const root = $('#modalRoot');
-  root.innerHTML = `<div class="modal-backdrop" data-modal-backdrop>
-    <div class="modal-wrap"><div class="modal">${html}</div></div>
-  </div>`;
-}
-function closeModal() {
-  $('#modalRoot').innerHTML = '';
-}
-document.addEventListener('click', (e) => {
-  if (e.target.matches('[data-modal-backdrop]')) closeModal();
-});
-document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') closeModal();
-});
-
-/* ============================================================
-   THUMBNAIL GENERATION
-   ============================================================ */
-const THUMB_MAX_W = 480;
-const THUMB_QUALITY = 0.75;
-
-function captureThumbnailFromFile(file) {
-  return new Promise((resolve) => {
-    const url = URL.createObjectURL(file);
-    const video = document.createElement('video');
-    video.preload = 'metadata';
-    video.muted = true;
-    video.playsInline = true;
-    video.src = url;
-    const cleanup = (result) => {
-      try { URL.revokeObjectURL(url); } catch (_) {}
-      video.removeAttribute('src');
-      video.load();
-      resolve(result);
-    };
-    const timeout = setTimeout(() => cleanup(''), 8000);
-    video.addEventListener('loadedmetadata', () => {
-      const dur = isFinite(video.duration) && video.duration > 0 ? video.duration : 1;
-      const target = Math.max(0.5, Math.min(dur * 0.2, dur - 0.1));
-      try { video.currentTime = target; } catch (_) { clearTimeout(timeout); cleanup(''); }
-    }, { once: true });
-    video.addEventListener('seeked', () => {
-      clearTimeout(timeout);
-      try {
-        const vw = video.videoWidth || 640;
-        const vh = video.videoHeight || 360;
-        const scale = Math.min(1, THUMB_MAX_W / vw);
-        const w = Math.round(vw * scale);
-        const h = Math.round(vh * scale);
-        const canvas = document.createElement('canvas');
-        canvas.width = w; canvas.height = h;
-        canvas.getContext('2d').drawImage(video, 0, 0, w, h);
-        cleanup(canvas.toDataURL('image/jpeg', THUMB_QUALITY));
-      } catch (e) { cleanup(''); }
-    }, { once: true });
-    video.addEventListener('error', () => { clearTimeout(timeout); cleanup(''); }, { once: true });
-  });
-}
-
-function readFileAsDataURL(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
-
-function resizeImageFile(file, maxW = THUMB_MAX_W) {
-  return new Promise((resolve) => {
-    const url = URL.createObjectURL(file);
-    const img = new Image();
-    img.onload = () => {
-      try {
-        const scale = Math.min(1, maxW / img.width);
-        const w = Math.round(img.width * scale);
-        const h = Math.round(img.height * scale);
-        const canvas = document.createElement('canvas');
-        canvas.width = w; canvas.height = h;
-        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-        const dataUrl = canvas.toDataURL('image/jpeg', THUMB_QUALITY);
-        URL.revokeObjectURL(url);
-        resolve(dataUrl);
-      } catch (e) { URL.revokeObjectURL(url); resolve(''); }
-    };
-    img.onerror = () => { URL.revokeObjectURL(url); resolve(''); };
-    img.src = url;
-  });
-}
-
-/* ============================================================
-   VIDEO SOURCE CACHE
-   ============================================================ */
-async function fetchVideoSrc(vid) {
-  if (srcCache[vid] !== undefined) return srcCache[vid];
-  if (state.mode === 'firebase' && db) {
-    try {
-      const snap = await get(ref(db, `pixeltube/videoSrc/${vid}`));
-      srcCache[vid] = snap.val() || '';
-    } catch (e) { srcCache[vid] = ''; }
-  } else if (localDB) {
-    srcCache[vid] = (localDB.videoSrc && localDB.videoSrc[vid]) || '';
-  } else {
-    srcCache[vid] = '';
-  }
-  return srcCache[vid];
-}
-
-async function hydrateVideosInView(root) {
-  const vids = $$('video[data-vid]', root || document);
-  await Promise.all(vids.map(async (v) => {
-    const vid = v.dataset.vid;
-    if (v.dataset.hydrated === '1') return;
-    v.dataset.hydrated = '1';
-    const src = await fetchVideoSrc(vid);
-    if (src) {
-      v.src = src;
-      const loading = v.parentElement.querySelector('.loading');
-      if (loading) loading.remove();
-    } else {
-      const loading = v.parentElement.querySelector('.loading');
-      if (loading) loading.textContent = 'Video source unavailable';
-      v.remove();
-    }
-  }));
-}
-
-async function registerView(vid) {
-  if (!vid) return;
-  if (state.viewedThisSession.has(vid)) return;
-  state.viewedThisSession.add(vid);
-
-  if (state.mode === 'firebase' && db) {
-    try {
-      await runTransaction(ref(db, `pixeltube/videos/${vid}/views`), n => (Number(n) || 0) + 1);
-    } catch (e) { console.warn('view increment failed', e); }
-  } else if (state.mode === 'local' && localDB) {
-    const v = localDB.videos[vid];
-    if (v) {
-      v.views = (Number(v.views) || 0) + 1;
-      persistLocal();
-      applyData(localDB);
-    }
-  }
-}
-
-/* ============================================================
-   DATA LAYER
-   ============================================================ */
-async function boot() {
-  try {
-    const app = initializeApp(FIREBASE_CONFIG);
-    db = getDatabase(app);
-    state.mode = 'firebase';
-    const rootRef = ref(db, 'pixeltube');
-    onValue(rootRef,
-      s => applyData(s.val() || {}),
-      err => console.warn('[PIXELTube] stream error:', err)
-    );
-    setStatus();
-  } catch (e) {
-    console.warn('[PIXELTube] Firebase unavailable → local mode.', e);
-    bootLocal();
-  }
-}
-
-function bootLocal() {
-  state.mode = 'local';
-  let raw = null;
-  try { raw = JSON.parse(localStorage.getItem('pixeltube_db') || 'null'); } catch (_) {}
-  if (!raw) raw = { channels: {}, videos: {}, videoSrc: {}, users: {}, comments: {}, playlists: {} };
-  localDB = raw;
-  applyData(localDB);
-  setStatus();
-}
-
-function persistLocal() {
-  try { localStorage.setItem('pixeltube_db', JSON.stringify(localDB)); } catch (_) {}
-}
-
-function applyData(d) {
-  lastData = d;
-  state.videos    = d.videos    || {};
-  state.channels  = d.channels  || {};
-  state.playlists = d.playlists || {};
-  const u = (d.users && d.users[state.uid]) || {};
-  state.subs  = u.subs  || {};
-  state.likes = u.likes || {};
-  renderSidebar();
-  render();
-}
-
-function reloadUserScopedData() {
-  if (state.mode === 'local' && localDB) applyData(localDB);
-  else if (lastData) applyData(lastData);
-}
-
-function setStatus() {
-  const p = $('#statusPill');
-  if (state.mode === 'firebase') { p.textContent = 'Realtime DB'; p.className = 'status-pill live'; }
-  else if (state.mode === 'local') { p.textContent = 'Local mode'; p.className = 'status-pill local'; }
-  else { p.textContent = 'connecting'; p.className = 'status-pill'; }
-}
-
-/* ============================================================
-   CHANNEL / USER
-   ============================================================ */
-function myChannelId() {
-  return PIXLECT.user ? ('pl_' + PIXLECT.user.uid) : null;
-}
-function myChannel() {
-  const cid = myChannelId();
-  return cid ? state.channels[cid] : null;
-}
-function hasChannel() {
-  return !!myChannel();
-}
-
-async function createOrUpdateChannel(data) {
-  const cid = myChannelId();
-  if (!cid) return;
-  const existing = state.channels[cid] || {};
-  const ch = {
-    id: cid,
-    name: data.name || existing.name || PIXLECT.user.username,
-    handle: data.handle || existing.handle || ('@' + PIXLECT.user.username),
-    color: data.color || existing.color || (PIXLECT.user.icon?.bg || '#7c4dff'),
-    avatar: data.avatar !== undefined ? data.avatar : (existing.avatar || ''),
-    banner: data.banner !== undefined ? data.banner : (existing.banner || ''),
-    subs: existing.subs || 0,
-    ownerUid: PIXLECT.user.uid,
-    createdAt: existing.createdAt || Date.now()
-  };
-  if (state.mode === 'firebase' && db) {
-    try { await set(ref(db, `pixeltube/channels/${cid}`), ch); }
-    catch (e) { console.warn('channel save failed', e); toast('Could not save channel'); }
-  } else if (state.mode === 'local' && localDB) {
-    localDB.channels[cid] = ch;
-    persistLocal();
-    applyData(localDB);
-  }
-}
-
-/* ============================================================
-   ACTIONS
-   ============================================================ */
-async function toggleSub(cid) {
-  if (!cid) return;
-  if (!PIXLECT.user) { toast('Sign in with PIXLECT to subscribe'); pixlectSignIn(); return; }
-  const on = isSubbed(cid);
-  const delta = on ? -1 : 1;
-
-  if (state.mode === 'firebase') {
-    try {
-      const p = `pixeltube/users/${state.uid}/subs/${cid}`;
-      if (on) await remove(ref(db, p));
-      else    await set(ref(db, p), true);
-      await runTransaction(ref(db, `pixeltube/channels/${cid}/subs`),
-        n => Math.max(0, (Number(n) || 0) + delta));
-      toast(on ? 'Unsubscribed' : 'Subscribed 🔔');
-    } catch (e) { console.warn(e); toast('Could not update subscription'); }
-  } else {
-    const u = localDB.users[state.uid] || (localDB.users[state.uid] = {});
-    const s = u.subs || (u.subs = {});
-    if (on) delete s[cid]; else s[cid] = true;
-    const ch = localDB.channels[cid];
-    if (ch) ch.subs = Math.max(0, (Number(ch.subs) || 0) + delta);
-    persistLocal();
-    applyData(localDB);
-    toast(on ? 'Unsubscribed' : 'Subscribed 🔔');
-  }
-}
-
-async function toggleLike(vid) {
-  if (!vid) return;
-  if (!PIXLECT.user) { toast('Sign in with PIXLECT to like'); pixlectSignIn(); return; }
-  const on = isLiked(vid);
-  const delta = on ? -1 : 1;
-
-  if (state.mode === 'firebase') {
-    try {
-      const p = `pixeltube/users/${state.uid}/likes/${vid}`;
-      if (on) await remove(ref(db, p));
-      else    await set(ref(db, p), true);
-      await runTransaction(ref(db, `pixeltube/videos/${vid}/likes`),
-        n => Math.max(0, (Number(n) || 0) + delta));
-    } catch (e) { console.warn(e); toast('Could not update like'); }
-  } else {
-    const u = localDB.users[state.uid] || (localDB.users[state.uid] = {});
-    const l = u.likes || (u.likes = {});
-    if (on) delete l[vid]; else l[vid] = true;
-    const v = localDB.videos[vid];
-    if (v) v.likes = Math.max(0, (Number(v.likes) || 0) + delta);
-    persistLocal();
-    applyData(localDB);
-  }
-}
-
-async function createVideo(payload) {
-  if (!PIXLECT.user) { toast('Sign in to upload'); pixlectSignIn(); return null; }
-  if (!hasChannel()) { promptCreateChannel(); return null; }
-  const cid = myChannelId();
-  const vid = 'v_' + Math.random().toString(36).slice(2, 10);
-
-  const meta = {
-    id: vid,
-    title: payload.title,
-    channelId: cid,
-    kind: payload.kind,
-    thumb: payload.thumb || '',
-    dur: payload.dur || '0:00',
-    views: 0,
-    likes: 0,
-    desc: payload.desc || '',
-    createdAt: Date.now(),
-    createdBy: PIXLECT.user.uid
-  };
-
-  if (state.mode === 'firebase') {
-    try {
-      await set(ref(db, `pixeltube/videos/${vid}`), meta);
-      await set(ref(db, `pixeltube/videoSrc/${vid}`), payload.src);
-      srcCache[vid] = payload.src;
-      return vid;
-    } catch (e) {
-      console.warn('createVideo failed', e);
-      toast('Publish failed: ' + (e?.message || e));
-      try { await remove(ref(db, `pixeltube/videos/${vid}`)); } catch (_) {}
-      return null;
-    }
-  } else {
-    localDB.videos[vid] = meta;
-    localDB.videoSrc = localDB.videoSrc || {};
-    localDB.videoSrc[vid] = payload.src;
-    srcCache[vid] = payload.src;
-    persistLocal();
-    applyData(localDB);
-    return vid;
-  }
-}
-
-async function deleteVideo(vid) {
-  if (state.mode === 'firebase' && db) {
-    try {
-      await remove(ref(db, `pixeltube/videos/${vid}`));
-      await remove(ref(db, `pixeltube/videoSrc/${vid}`));
-    } catch (e) { console.warn(e); toast('Could not delete'); }
-  } else if (localDB) {
-    delete localDB.videos[vid];
-    if (localDB.videoSrc) delete localDB.videoSrc[vid];
-    persistLocal();
-    applyData(localDB);
-  }
-}
-
-/* ============================================================
-   COMMENTS
-   ============================================================ */
-async function addComment(vid, text) {
-  if (!PIXLECT.user) { toast('Sign in to comment'); pixlectSignIn(); return; }
-  const cid = 'c_' + Math.random().toString(36).slice(2, 10);
-  const comment = {
-    uid: PIXLECT.user.uid,
-    username: PIXLECT.user.username,
-    icon: PIXLECT.user.icon || { bg: '#7c4dff', emoji: '👤' },
-    text,
-    ts: Date.now()
-  };
-  if (state.mode === 'firebase') {
-    try { await set(ref(db, `pixeltube/comments/${vid}/${cid}`), comment); }
-    catch (e) { console.warn(e); toast('Could not post comment'); }
-  } else {
-    const c = localDB.comments || (localDB.comments = {});
-    const v = c[vid] || (c[vid] = {});
-    v[cid] = comment;
-    persistLocal();
-    renderComments(vid, v);
-  }
-}
-
-function subscribeComments(vid) {
-  if (commentsUnsub) { commentsUnsub(); commentsUnsub = null; }
-  const target = document.getElementById('commentList');
-  if (!target) return;
-  if (state.mode === 'firebase' && db) {
-    const r = ref(db, `pixeltube/comments/${vid}`);
-    commentsUnsub = onValue(r, s => renderComments(vid, s.val() || {}),
-      err => console.warn('comments error', err));
-  } else if (localDB) {
-    renderComments(vid, (localDB.comments && localDB.comments[vid]) || {});
-  }
-}
-
-function renderComments(vid, map) {
-  const target = document.getElementById('commentList');
-  if (!target) return;
-  const list = Object.values(map).sort((a, b) => (b.ts || 0) - (a.ts || 0));
-  if (!list.length) {
-    target.innerHTML = `<div class="no-comments">No comments yet. Be the first!</div>`;
-    return;
-  }
-  target.innerHTML = list.map(c => `
-    <div class="comment">
-      ${c.icon?.avatar
-        ? `<span class="pic"><img src="${esc(c.icon.avatar)}" alt=""></span>`
-        : `<span class="pic" style="background:${esc(c.icon?.bg || '#7c4dff')}">${esc(c.icon?.emoji || '👤')}</span>`}
-      <div class="body">
-        <div class="meta"><b>${esc(c.username || 'user')}</b><span>${esc(timeAgo(c.ts || Date.now()))}</span></div>
-        <div class="text">${esc(c.text)}</div>
-      </div>
-    </div>
-  `).join('');
-}
-
-/* ============================================================
-   PLAYLISTS
-   ============================================================ */
-function playlistsOfUser() {
-  const out = [];
-  for (const [pid, pl] of Object.entries(state.playlists)) {
-    if (pl.ownerUid === PIXLECT.user?.uid) out.push(pl);
-  }
-  return out.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-}
-
-async function createPlaylist(name) {
-  if (!PIXLECT.user) { toast('Sign in to create playlists'); pixlectSignIn(); return null; }
-  const pid = 'pl_' + Math.random().toString(36).slice(2, 10);
-  const pl = {
-    id: pid,
-    name: name.trim().slice(0, 80) || 'Untitled playlist',
-    ownerUid: PIXLECT.user.uid,
-    ownerName: PIXLECT.user.username,
-    videoIds: {},
-    createdAt: Date.now()
-  };
-  if (state.mode === 'firebase' && db) {
-    try { await set(ref(db, `pixeltube/playlists/${pid}`), pl); return pid; }
-    catch (e) { console.warn(e); toast('Could not create playlist'); return null; }
-  } else if (localDB) {
-    localDB.playlists = localDB.playlists || {};
-    localDB.playlists[pid] = pl;
-    persistLocal();
-    applyData(localDB);
-    return pid;
-  }
-  return null;
-}
-
-async function deletePlaylist(pid) {
-  if (state.mode === 'firebase' && db) {
-    try { await remove(ref(db, `pixeltube/playlists/${pid}`)); }
-    catch (e) { console.warn(e); }
-  } else if (localDB) {
-    delete localDB.playlists[pid];
-    persistLocal();
-    applyData(localDB);
-  }
-}
-
-async function addToPlaylist(pid, vid) {
-  if (state.mode === 'firebase' && db) {
-    try { await set(ref(db, `pixeltube/playlists/${pid}/videoIds/${vid}`), true); }
-    catch (e) { console.warn(e); toast('Could not add to playlist'); }
-  } else if (localDB) {
-    localDB.playlists[pid].videoIds = localDB.playlists[pid].videoIds || {};
-    localDB.playlists[pid].videoIds[vid] = true;
-    persistLocal();
-    applyData(localDB);
-  }
-}
-
-async function removeFromPlaylist(pid, vid) {
-  if (state.mode === 'firebase' && db) {
-    try { await remove(ref(db, `pixeltube/playlists/${pid}/videoIds/${vid}`)); }
-    catch (e) { console.warn(e); }
-  } else if (localDB) {
-    if (localDB.playlists[pid].videoIds) delete localDB.playlists[pid].videoIds[vid];
-    persistLocal();
-    applyData(localDB);
-  }
-}
-
-function playlistVideos(pid) {
-  const pl = state.playlists[pid];
-  if (!pl) return [];
-  const ids = Object.keys(pl.videoIds || {});
-  return ids.map(id => state.videos[id]).filter(Boolean);
-}
-
-/* ============================================================
-   CHANNEL PROMPT
-   ============================================================ */
-function promptCreateChannel() {
-  if (!PIXLECT.user) { pixlectSignIn(); return; }
-  openModal(`
-    <button class="close" onclick="document.getElementById('modalRoot').innerHTML=''">
-      <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M19 6.4L17.6 5 12 10.6 6.4 5 5 6.4 10.6 12 5 17.6 6.4 19 12 13.4 17.6 19 19 17.6 13.4 12z"/></svg>
-    </button>
-    <h2>Create your PIXELChannel</h2>
-    <p class="lede">Pick a channel name, handle, and profile picture. This is how viewers will find you on PIXELTube.</p>
-
-    <div class="avatar-preview">
-      <div class="av" id="chAvPreview">${esc(initial(PIXLECT.user.username))}</div>
-      <div class="meta">
-        <strong>${esc(PIXLECT.user.username)}</strong>
-        <small>Your channel identity</small>
-      </div>
-    </div>
-
-    <div class="field">
-      <label for="chName">Channel name *</label>
-      <input id="chName" type="text" maxlength="60" placeholder="e.g. Pixel Studios" value="${esc(PIXLECT.user.username)}" />
-    </div>
-    <div class="field">
-      <label for="chHandle">Handle</label>
-      <input id="chHandle" type="text" maxlength="30" placeholder="@pixelstudios" value="@${esc(PIXLECT.user.username)}" />
-    </div>
-    <div class="field">
-      <label>Profile picture</label>
-      <div class="source-tabs">
-        <button type="button" class="source-tab active" data-chav="emoji">😀 Emoji</button>
-        <button type="button" class="source-tab" data-chav="upload">🖼️ Upload</button>
-        <button type="button" class="source-tab" data-chav="url">🔗 URL</button>
-      </div>
-      <div id="chAvPaneEmoji">
-        <div class="info-note">Your PIXLECT emoji will be used. You can change it later.</div>
-      </div>
-      <div id="chAvPaneUpload" style="display:none">
-        <div class="dropzone" id="chAvDrop">
-          <input type="file" id="chAvFile" accept="image/*" />
-          <div class="dz-icon">🖼️</div>
-          <div class="dz-title">Click to choose an image</div>
-          <div class="dz-sub">JPG, PNG, WebP</div>
-        </div>
-      </div>
-      <div id="chAvPaneUrl" style="display:none">
-        <input id="chAvUrl" type="url" placeholder="https://example.com/avatar.jpg" />
-      </div>
-    </div>
-
-    <div class="form-actions">
-      <button type="button" class="btn-secondary" onclick="document.getElementById('modalRoot').innerHTML=''">Cancel</button>
-      <button type="button" class="btn-primary" id="chCreateBtn">Create PIXELChannel</button>
-    </div>
-  `);
-
-  let chAvMode = 'emoji';
-  let chAvData = '';
-
-  const avPreview = document.getElementById('chAvPreview');
-  const updateAvPreview = () => {
-    if (chAvMode === 'emoji' || !chAvData) {
-      avPreview.innerHTML = esc(initial(document.getElementById('chName').value || PIXLECT.user.username));
-      avPreview.style.background = PIXLECT.user.icon?.bg || '#7c4dff';
-      avPreview.querySelectorAll('img').forEach(i => i.remove());
-    } else {
-      avPreview.innerHTML = `<img src="${esc(chAvData)}" alt="">`;
-    }
-  };
-
-  document.querySelectorAll('[data-chav]').forEach(t => t.addEventListener('click', () => {
-    document.querySelectorAll('[data-chav]').forEach(x => x.classList.remove('active'));
-    t.classList.add('active');
-    chAvMode = t.dataset.chav;
-    document.getElementById('chAvPaneEmoji').style.display    = chAvMode === 'emoji'  ? '' : 'none';
-    document.getElementById('chAvPaneUpload').style.display   = chAvMode === 'upload' ? '' : 'none';
-    document.getElementById('chAvPaneUrl').style.display      = chAvMode === 'url'    ? '' : 'none';
-    if (chAvMode !== 'upload' && chAvMode !== 'url') chAvData = '';
-    updateAvPreview();
-  }));
-
-  const chAvDrop = document.getElementById('chAvDrop');
-  const chAvFile = document.getElementById('chAvFile');
-  chAvDrop.addEventListener('click', () => chAvFile.click());
-  chAvFile.addEventListener('change', async (e) => {
-    const f = e.target.files[0];
-    if (!f) return;
-    chAvData = await resizeImageFile(f, 240);
-    updateAvPreview();
-  });
-
-  document.getElementById('chAvUrl').addEventListener('input', (e) => {
-    chAvData = e.target.value.trim();
-    updateAvPreview();
-  });
-  document.getElementById('chName').addEventListener('input', updateAvPreview);
-
-  document.getElementById('chCreateBtn').onclick = async () => {
-    const name = document.getElementById('chName').value.trim();
-    const handle = document.getElementById('chHandle').value.trim();
-    if (!name) { toast('Channel name is required'); return; }
-    const avatar = chAvMode === 'emoji' ? '' : chAvData;
-    await createOrUpdateChannel({ name, handle, avatar });
-    closeModal();
-    toast('PIXELChannel created 🎉');
-    renderTopbar();
-    renderSidebar();
-    render(true);
-  };
-}
-
-function promptEditChannel() {
-  const ch = myChannel();
-  if (!ch) { promptCreateChannel(); return; }
-  openModal(`
-    <button class="close" onclick="document.getElementById('modalRoot').innerHTML=''">
-      <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M19 6.4L17.6 5 12 10.6 6.4 5 5 6.4 10.6 12 5 17.6 6.4 19 12 13.4 17.6 19 19 17.6 13.4 12z"/></svg>
-    </button>
-    <h2>Edit your PIXELChannel</h2>
-    <p class="lede">Update your channel name, handle, and profile picture.</p>
-
-    <div class="avatar-preview">
-      <div class="av" id="chAvPreview">${ch.avatar ? `<img src="${esc(ch.avatar)}" alt="">` : esc(initial(ch.name))}</div>
-      <div class="meta">
-        <strong>${esc(ch.name)}</strong>
-        <small>${esc(ch.handle)}</small>
-      </div>
-    </div>
-
-    <div class="field">
-      <label for="chName">Channel name *</label>
-      <input id="chName" type="text" maxlength="60" value="${esc(ch.name)}" />
-    </div>
-    <div class="field">
-      <label for="chHandle">Handle</label>
-      <input id="chHandle" type="text" maxlength="30" value="${esc(ch.handle)}" />
-    </div>
-    <div class="field">
-      <label>Profile picture</label>
-      <div class="source-tabs">
-        <button type="button" class="source-tab active" data-chav="keep">Keep</button>
-        <button type="button" class="source-tab" data-chav="upload">🖼️ Upload</button>
-        <button type="button" class="source-tab" data-chav="url">🔗 URL</button>
-        <button type="button" class="source-tab" data-chav="remove">Remove</button>
-      </div>
-      <div id="chAvPaneKeep"><div class="info-note">Current picture will be kept.</div></div>
-      <div id="chAvPaneUpload" style="display:none">
-        <div class="dropzone" id="chAvDrop">
-          <input type="file" id="chAvFile" accept="image/*" />
-          <div class="dz-icon">🖼️</div>
-          <div class="dz-title">Click to choose an image</div>
-        </div>
-      </div>
-      <div id="chAvPaneUrl" style="display:none">
-        <input id="chAvUrl" type="url" placeholder="https://example.com/avatar.jpg" />
-      </div>
-      <div id="chAvPaneRemove" style="display:none">
-        <div class="info-note">Picture will be cleared — a colored initial will be shown instead.</div>
-      </div>
-    </div>
-
-    <div class="form-actions">
-      <button type="button" class="btn-secondary" id="chDeleteBtn" style="color:var(--accent)">Delete channel</button>
-      <button type="button" class="btn-secondary" onclick="document.getElementById('modalRoot').innerHTML=''">Cancel</button>
-      <button type="button" class="btn-primary" id="chSaveBtn">Save</button>
-    </div>
-  `);
-
-  let chAvMode = 'keep';
-  let chAvData = ch.avatar || '';
-
-  const avPreview = document.getElementById('chAvPreview');
-  const updateAvPreview = () => {
-    if (chAvMode === 'remove' || (chAvMode === 'keep' && !ch.avatar)) {
-      avPreview.innerHTML = esc(initial(document.getElementById('chName').value || ch.name));
-    } else if (chAvMode === 'upload' || chAvMode === 'url') {
-      avPreview.innerHTML = chAvData ? `<img src="${esc(chAvData)}" alt="">` : esc(initial(document.getElementById('chName').value || ch.name));
-    } else {
-      avPreview.innerHTML = ch.avatar ? `<img src="${esc(ch.avatar)}" alt="">` : esc(initial(ch.name));
-    }
-  };
-
-  document.querySelectorAll('[data-chav]').forEach(t => t.addEventListener('click', () => {
-    document.querySelectorAll('[data-chav]').forEach(x => x.classList.remove('active'));
-    t.classList.add('active');
-    chAvMode = t.dataset.chav;
-    document.getElementById('chAvPaneKeep').style.display    = chAvMode === 'keep'   ? '' : 'none';
-    document.getElementById('chAvPaneUpload').style.display  = chAvMode === 'upload' ? '' : 'none';
-    document.getElementById('chAvPaneUrl').style.display     = chAvMode === 'url'    ? '' : 'none';
-    document.getElementById('chAvPaneRemove').style.display  = chAvMode === 'remove' ? '' : 'none';
-    if (chAvMode === 'remove') chAvData = '';
-    updateAvPreview();
-  }));
-
-  const chAvDrop = document.getElementById('chAvDrop');
-  const chAvFile = document.getElementById('chAvFile');
-  if (chAvDrop) {
-    chAvDrop.addEventListener('click', () => chAvFile.click());
-    chAvFile.addEventListener('change', async (e) => {
-      const f = e.target.files[0];
-      if (!f) return;
-      chAvData = await resizeImageFile(f, 240);
-      updateAvPreview();
-    });
-  }
-  const urlInput = document.getElementById('chAvUrl');
-  if (urlInput) urlInput.addEventListener('input', (e) => {
-    chAvData = e.target.value.trim();
-    updateAvPreview();
-  });
-  document.getElementById('chName').addEventListener('input', updateAvPreview);
-
-  document.getElementById('chSaveBtn').onclick = async () => {
-    const name = document.getElementById('chName').value.trim();
-    const handle = document.getElementById('chHandle').value.trim();
-    if (!name) { toast('Channel name is required'); return; }
-    const payload = { name, handle };
-    if (chAvMode === 'remove') payload.avatar = '';
-    else if (chAvMode === 'upload' || chAvMode === 'url') payload.avatar = chAvData;
-    await createOrUpdateChannel(payload);
-    closeModal();
-    toast('Channel updated');
-    renderTopbar();
-    renderSidebar();
-    render(true);
-  };
-
-  document.getElementById('chDeleteBtn').onclick = async () => {
-    if (!confirm('Delete your PIXELChannel? Videos stay on the platform but lose their channel. This cannot be undone.')) return;
-    const cid = myChannelId();
-    if (state.mode === 'firebase' && db) {
-      try { await remove(ref(db, `pixeltube/channels/${cid}`)); }
-      catch (e) { console.warn(e); }
-    } else if (localDB) {
-      delete localDB.channels[cid];
-      persistLocal();
-      applyData(localDB);
-    }
-    closeModal();
-    toast('Channel deleted');
-    renderTopbar();
-    renderSidebar();
-    render(true);
-  };
-}
-
-/* ============================================================
-   ROUTER
-   ============================================================ */
-function parseRoute() {
-  const parts = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean);
-  return parts.length ? parts : ['home'];
-}
-window.addEventListener('hashchange', () => {
-  if (commentsUnsub) { commentsUnsub(); commentsUnsub = null; }
-  state.route = parseRoute();
-  document.body.classList.remove('nav-open');
-  render(true);
-});
-
-/* ============================================================
-   TOPBAR
-   ============================================================ */
-function renderTopbar() {
-  const slot = $('#authSlot');
-
-  if (!PIXLECT.user) {
-    slot.innerHTML = `
-      <button class="signin-btn" id="pixlectSignIn" title="Sign in with PIXLECT">
-        <svg class="pix" viewBox="0 0 24 24"><path d="M12 2 2 7v10l10 5 10-5V7zm0 2.3 7.5 3.7L12 11.7 4.5 8zM4 9.7l7.5 3.8v7.2L4 16.9zm16 0v7.2l-7.5 3.8v-7.2z"/></svg>
-        Sign in
-      </button>`;
-    $('#pixlectSignIn').onclick = pixlectSignIn;
-    return;
-  }
-
-  const u = PIXLECT.user;
-  const ch = myChannel();
-  const displayName = ch ? ch.name : u.username;
-  const avatarHTML_ = ch && ch.avatar
-    ? `<span class="pic"><img src="${esc(ch.avatar)}" alt=""></span>`
-    : ch
-      ? `<span class="pic" style="background:${esc(ch.color)}">${esc(initial(ch.name))}</span>`
-      : `<span class="pic" style="background:${esc(u.icon?.bg || '#7c4dff')}">${esc(u.icon?.emoji || '👤')}</span>`;
-
-  const channelBlock = ch
-    ? `<button id="menuEditChannel">
-         <svg viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75z"/></svg>
-         Edit PIXELChannel
-       </button>
-       <a href="#/channel/${esc(ch.id)}" style="display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:10px 12px;border-radius:9px;font-size:13.5px;font-weight:600" id="menuViewChannel">
-         <svg viewBox="0 0 24 24" width="17" height="17" fill="currentColor" opacity="0.8"><path d="M12 5c-7 0-10 7-10 7s3 7 10 7 10-7 10-7-3-7-10-7zm0 11a4 4 0 1 1 0-8 4 4 0 0 1 0 8z"/></svg>
-         View my channel
-       </a>`
-    : `<button id="menuCreateChannel">
-         <svg viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6z"/></svg>
-         Create PIXELChannel
-       </button>`;
-
-  slot.innerHTML = `
-    <button class="user-chip" id="userChip">
-      ${avatarHTML_}
-      <span class="nm">${esc(displayName)}</span>
-    </button>
-    <div class="user-menu" id="userMenu">
-      <div class="head">
-        ${avatarHTML_}
-        <div style="min-width:0">
-          <strong>${esc(displayName)}</strong>
-          <small>@${esc(u.username)} · ${ch ? 'PIXELChannel' : 'No channel'}</small>
-        </div>
-      </div>
-      ${channelBlock}
-      <div class="sep"></div>
-      <button id="menuSignOut">
-        <svg viewBox="0 0 24 24"><path d="M16 13v-2H7V8l-5 4 5 4v-3zM20 3h-8v2h8v14h-8v2h8a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2z"/></svg>
-        Sign out
-      </button>
-    </div>`;
-
-  const chip = $('#userChip');
-  const menu = $('#userMenu');
-  chip.onclick = (e) => { e.stopPropagation(); menu.classList.toggle('open'); };
-  const mc = document.getElementById('menuCreateChannel');
-  if (mc) mc.onclick = () => { menu.classList.remove('open'); promptCreateChannel(); };
-  const me = document.getElementById('menuEditChannel');
-  if (me) me.onclick = () => { menu.classList.remove('open'); promptEditChannel(); };
-  const mv = document.getElementById('menuViewChannel');
-  if (mv) mv.onclick = () => menu.classList.remove('open');
-  $('#menuSignOut').onclick = () => { menu.classList.remove('open'); pixlectSignOut(); };
-  document.addEventListener('click', () => menu.classList.remove('open'));
-}
-
-/* ============================================================
-   SIDEBAR
-   ============================================================ */
-const ICONS = {
-  home:    '<svg viewBox="0 0 24 24"><path d="M12 3l9 8h-3v9h-5v-6h-2v6H6v-9H3z"/></svg>',
-  mini:    '<svg viewBox="0 0 24 24"><path d="M13 2L4.5 13H11l-1 9L18.5 11H12z"/></svg>',
-  subs:    '<svg viewBox="0 0 24 24"><path d="M4 6h16v2H4zm0 5h16v2H4zm0 5h10v2H4z"/><circle cx="18" cy="16" r="3"/></svg>',
-  like:    '<svg viewBox="0 0 24 24"><path d="M2 20h3V9H2zm19.8-9.4c0-.9-.7-1.6-1.6-1.6h-5l.8-3.9.03-.3c0-.3-.1-.6-.3-.8L14.9 3 9.4 8.6c-.3.2-.4.6-.4.9V18c0 .9.7 1.6 1.6 1.6h7.2c.7 0 1.2-.4 1.4-1l2.4-5.7c.1-.2.1-.4.1-.6z"/></svg>',
-  create:  '<svg viewBox="0 0 24 24"><path d="M17 10.5V7a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3.5l4 4v-11z"/></svg>',
-  playlist:'<svg viewBox="0 0 24 24"><path d="M3 6h13v2H3zm0 5h13v2H3zm0 5h9v2H3zm14-1v6l5-3z"/></svg>'
-};
-
-function renderSidebar() {
-  const [page] = state.route;
-  const subIds = Object.keys(state.subs);
-  const likeCount = Object.keys(state.likes).length;
-  const miniCount = minisSorted().length;
-  const myPls = playlistsOfUser();
-
-  const userBlock = PIXLECT.user ? `
-    <div class="side-user">
-      ${myChannel()
-        ? (myChannel().avatar
-            ? `<span class="pic"><img src="${esc(myChannel().avatar)}" alt=""></span>`
-            : `<span class="pic" style="background:${esc(myChannel().color)}">${esc(initial(myChannel().name))}</span>`)
-        : `<span class="pic" style="background:${esc(PIXLECT.user.icon?.bg || '#7c4dff')}">${esc(PIXLECT.user.icon?.emoji || '👤')}</span>`}
-      <div class="t">
-        <strong>${esc(myChannel() ? myChannel().name : PIXLECT.user.username)}</strong>
-        <small>${myChannel() ? 'PIXELChannel' : 'No channel'}</small>
-      </div>
-    </div>
-    ${!myChannel() ? `<button class="btn-primary" style="margin:8px 4px 0;width:calc(100% - 8px)" id="sideCreateChannel">Create PIXELChannel</button>` : ''}
-  ` : `
-    <div class="side-note">Not signed in.<br>Sign in to upload, like, and comment.</div>
-  `;
-
-  $('#sidebar').innerHTML = `
-    <a class="nav ${page === 'home' ? 'active' : ''}" href="#/">${ICONS.home} Home</a>
-    <a class="nav ${page === 'minis' ? 'active' : ''}" href="#/minis">${ICONS.mini} Minis <span class="count">${miniCount || ''}</span></a>
-    <a class="nav ${page === 'subs' ? 'active' : ''}" href="#/subs">${ICONS.subs} Subscriptions <span class="count">${subIds.length || ''}</span></a>
-    <a class="nav ${page === 'liked' ? 'active' : ''}" href="#/liked">${ICONS.like} Liked <span class="count">${likeCount || ''}</span></a>
-    <a class="nav ${page === 'create' ? 'active' : ''}" href="#/create">${ICONS.create} Create</a>
-
-    <h4>Playlists</h4>
-    ${myPls.length ? myPls.map(pl => `
-      <a class="pl-row" href="#/playlist/${esc(pl.id)}">
-        <span class="avatar sm" style="background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff">♪</span>
-        <span class="nm">${esc(pl.name)}</span>
-      </a>`).join('') : ''}
-    <a class="pl-row" href="#/playlists" style="color:var(--muted);font-size:13px">
-      <span class="avatar sm" style="background:var(--surface2);color:var(--muted)">+</span>
-      <span class="nm">${myPls.length ? 'Manage playlists' : 'Create a playlist'}</span>
-    </a>
-
-    <h4>Subscriptions</h4>
-    ${subIds.length ? subIds.map(cid => {
-      const c = state.channels[cid];
-      if (!c) return '';
-      return `<a class="sub-row" href="#/channel/${esc(cid)}">
-                ${avatarHTML(c, 'sm')}<span class="nm">${esc(c.name)}</span>
-              </a>`;
-    }).join('') : `<div class="side-note">No subscriptions yet.</div>`}
-
-    <h4>Account</h4>
-    ${userBlock}
-  `;
-  const sc = document.getElementById('sideCreateChannel');
-  if (sc) sc.onclick = promptCreateChannel;
-}
-
-/* ============================================================
-   RENDER
-   ============================================================ */
-let renderedKey = null;
-
-function render(force = false) {
-  const key = state.route.join('/');
-  const isStateful = !force && key === renderedKey &&
-                     (state.route[0] === 'watch' || state.route[0] === 'minis');
-  if (isStateful) { syncDynamic(); return; }
-  renderedKey = key;
-
-  const view = $('#view');
-  view.classList.toggle('snap', state.route[0] === 'minis');
-  view.scrollTop = 0;
-
-  const [page, arg] = state.route;
-
-  if      (page === 'home')         view.innerHTML = viewHome();
-  else if (page === 'minis')        { view.innerHTML = viewMinis(); setupMinis(); hydrateVideosInView(view); }
-  else if (page === 'subs')         view.innerHTML = viewSubs();
-  else if (page === 'liked')        view.innerHTML = viewLiked();
-  else if (page === 'create')       { view.innerHTML = viewCreate(); setupCreateForm(); }
-  else if (page === 'watch')        { view.innerHTML = viewWatch(arg); subscribeComments(arg); setupCommentForm(arg); hydrateVideosInView(view); }
-  else if (page === 'channel')      view.innerHTML = viewChannel(arg);
-  else if (page === 'playlists')    view.innerHTML = viewPlaylists();
-  else if (page === 'playlist')     view.innerHTML = viewPlaylist(arg);
-  else                              view.innerHTML = viewHome();
-
-  syncDynamic();
-}
-
-function syncDynamic() {
-  $$('[data-dyn]').forEach(el => {
-    const t = el.dataset.dyn;
-    if (t === 'like') {
-      const on = isLiked(el.dataset.video);
-      el.classList.toggle('active', on);
-      const lbl = el.querySelector('.lbl');
-      if (lbl) lbl.textContent = fmt(likesOf(el.dataset.video));
-    } else if (t === 'sub') {
-      const on = isSubbed(el.dataset.channel);
-      el.classList.toggle('subbed', on);
-      el.textContent = on ? 'Subscribed' : 'Subscribe';
-    } else if (t === 'subcount') {
-      el.textContent = fmt(subsOf(el.dataset.channel)) + ' subscribers';
-    } else if (t === 'views') {
-      el.textContent = fmt(viewsOf(el.dataset.video)) + ' views';
-    }
-  });
-  renderSidebar();
-}
-
-function cardHTML(v) {
-  const c = chanOf(v.id);
-  return `
-  <a class="card" href="#/watch/${esc(v.id)}">
-    <div class="thumb">
-      ${thumbHTML(v)}
-      <span class="dur">${esc(v.dur)}</span>
-    </div>
-    <div class="info">
-      ${avatarHTML(c)}
-      <div style="min-width:0">
-        <h3>${esc(v.title)}</h3>
-        <div class="sub">${esc(c.name)}</div>
-        <div class="sub">${fmt(v.views)} views · ${esc(timeAgo(v.createdAt))}</div>
-      </div>
-    </div>
-  </a>`;
-}
-
-function shortCardHTML(v) {
-  const c = chanOf(v.id);
-  return `
-  <a class="short-card" href="#/watch/${esc(v.id)}">
-    <div class="t">
-      ${thumbHTML(v)}
-      <span class="badge">MINI</span>
-      <span class="views">
-        <svg viewBox="0 0 24 24"><path d="M12 5c-7 0-10 7-10 7s3 7 10 7 10-7 10-7-3-7-10-7zm0 11a4 4 0 1 1 0-8 4 4 0 0 1 0 8z"/></svg>
-        ${fmt(v.views)}
-      </span>
-    </div>
-    <h3>${esc(v.title)}</h3>
-    <div class="sub">${esc(c.name)}</div>
-  </a>`;
-}
-
-function emptyState(icon, title, text, cta) {
-  return `<div class="empty">
-    <div class="big">${icon}</div>
-    <h2>${esc(title)}</h2>
-    <p>${text}</p>
-    ${cta || ''}
-  </div>`;
-}
-
-function viewHome() {
-  const all = videosSorted();
-  let longs = longsSorted();
-  const minis = minisSorted();
-
-  if (state.search) {
-    const q = state.search.toLowerCase();
-    const filtered = all.filter(v =>
-      v.title.toLowerCase().includes(q) ||
-      chanOf(v.id).name.toLowerCase().includes(q));
-    if (!filtered.length) {
-      return emptyState('🔍', `No results for "${state.search}"`, 'Try a different search term.', '');
-    }
-    return `
-      <div class="page-head"><h1>Results</h1><p>${filtered.length} video${filtered.length === 1 ? '' : 's'}</p></div>
-      <div class="grid">${filtered.map(cardHTML).join('')}</div>`;
-  }
-
-  if (!all.length) {
-    return emptyState('🎬', 'No videos yet',
-      'PIXELTube is empty. Be the first to upload a video and start building the catalog.',
-      PIXLECT.user
-        ? (hasChannel()
-            ? `<a class="btn-ghost" href="#/create">Upload a video</a>`
-            : `<button class="btn-primary" id="emptyCreateChannel">Create your PIXELChannel</button>`)
-        : `<button class="btn-primary" onclick="window.dispatchEvent(new Event('pixeltube:signin'))">Sign in with PIXLECT</button>`);
-  }
-
-  const shortsShelf = minis.length ? `
-    <section class="shorts-shelf">
-      <div class="shelf-head">
-        <div class="icon"><svg viewBox="0 0 24 24"><path d="M13 2L4.5 13H11l-1 9L18.5 11H12z"/></svg></div>
-        <h2>Minis</h2>
-        <a href="#/minis" style="margin-left:auto;font-size:13px;color:var(--muted);font-weight:700">View all →</a>
-      </div>
-      <div class="shorts-rail">${minis.slice(0, 12).map(shortCardHTML).join('')}</div>
-    </section>` : '';
-
-  return `
-    ${shortsShelf}
-    <div class="page-head">
-      <h1>Home</h1>
-      <p>${longs.length} video${longs.length === 1 ? '' : 's'}</p>
-    </div>
-    ${longs.length
-      ? `<div class="grid">${longs.map(cardHTML).join('')}</div>`
-      : `<div class="empty" style="padding:50px 24px"><p style="margin:0">No Longs yet — the Minis are above ☝️</p></div>`}
-  `;
-}
-
-function viewMinis() {
-  const list = minisSorted();
-  if (!list.length) {
-    return emptyState('⚡', 'No Minis yet',
-      PIXLECT.user
-        ? (hasChannel()
-            ? 'Upload a Mini — a short vertical video — to fill this feed.'
-            : 'Create your PIXELChannel to start uploading Minis.')
-        : 'Sign in with PIXLECT to upload Minis.',
-      PIXLECT.user
-        ? (hasChannel()
-            ? `<a class="btn-ghost" href="#/create">Upload a Mini</a>`
-            : `<button class="btn-primary" id="emptyCreateChannel">Create your PIXELChannel</button>`)
-        : `<button class="btn-primary" onclick="window.dispatchEvent(new Event('pixeltube:signin'))">Sign in with PIXLECT</button>`);
-  }
-  return list.map(v => {
-    const c = chanOf(v.id);
-    return `
-    <section class="mini" data-mini="${esc(v.id)}">
-      <div class="mini-inner">
-        <video data-vid="${esc(v.id)}" loop muted playsinline preload="metadata" poster="${esc(v.thumb || '')}"></video>
-        <div class="shade"></div>
-        <button class="mute-btn" data-action="mute">🔇</button>
-
-        <div class="rail">
-          <button class="rail-btn" data-action="like" data-video="${esc(v.id)}" data-dyn="like">
-            <span class="circ"><svg viewBox="0 0 24 24"><path d="M2 20h3V9H2zm19.8-9.4c0-.9-.7-1.6-1.6-1.6h-5l.8-3.9.03-.3c0-.3-.1-.6-.3-.8L14.9 3 9.4 8.6c-.3.2-.4.6-.4.9V18c0 .9.7 1.6 1.6 1.6h7.2c.7 0 1.2-.4 1.4-1l2.4-5.7c.1-.2.1-.4.1-.6z"/></svg></span>
-            <span class="lbl">${fmt(v.likes)}</span>
-          </button>
-          <button class="rail-btn" data-action="sub" data-channel="${esc(c.id)}" data-dyn="sub" title="Subscribe">
-            <span class="circ"><svg viewBox="0 0 24 24"><path d="M12 12a5 5 0 1 0-5-5 5 5 0 0 0 5 5zm0 2c-4 0-8 2-8 4.5V21h16v-2.5C20 16 16 14 12 14z"/></svg></span>
-          </button>
-        </div>
-
-        <div class="bottom">
-          <div class="ch">
-            ${avatarHTML(c, 'sm')}
-            <a class="nm" href="#/channel/${esc(c.id)}">${esc(c.name)}</a>
-          </div>
-          <h3>${esc(v.title)}</h3>
-          <div class="views" data-dyn="views" data-video="${esc(v.id)}">${fmt(v.views)} views</div>
-        </div>
-      </div>
-    </section>`;
-  }).join('');
-}
-
-let miniObserver = null;
-function setupMinis() {
-  if (miniObserver) miniObserver.disconnect();
-  const vids = $$('.mini video');
-  if (!vids.length) return;
-  miniObserver = new IntersectionObserver(entries => {
-    entries.forEach(en => {
-      const v = en.target;
-      if (en.isIntersecting && en.intersectionRatio > 0.6) {
-        v.play().catch(() => {});
-        if (v.dataset.vid) registerView(v.dataset.vid);
-      } else {
-        v.pause();
-      }
-    });
-  }, { threshold: [0, 0.6, 1] });
-  vids.forEach(v => miniObserver.observe(v));
-}
-
-function viewSubs() {
-  const ids = Object.keys(state.subs);
-  if (!ids.length) {
-    return emptyState('📺', 'No subscriptions yet',
-      PIXLECT.user
-        ? 'Subscribe to channels and their newest videos show up here.'
-        : 'Sign in with PIXLECT, then subscribe to channels.',
-      PIXLECT.user ? '' : `<button class="btn-primary" onclick="window.dispatchEvent(new Event('pixeltube:signin'))">Sign in with PIXLECT</button>`);
-  }
-  const list = videosSorted().filter(v => state.subs[v.channelId]);
-  return `
-    <div class="page-head">
-      <h1>Subscriptions</h1>
-      <p>${ids.length} channel${ids.length === 1 ? '' : 's'} · ${list.length} video${list.length === 1 ? '' : 's'}</p>
-    </div>
-    ${list.length
-      ? `<div class="grid">${list.map(cardHTML).join('')}</div>`
-      : emptyState('📭', 'Nothing new yet', 'Channels you subscribe to haven\'t uploaded anything.', '')}`;
-}
-
-function viewLiked() {
-  const ids = Object.keys(state.likes);
-  if (!ids.length) {
-    return emptyState('👍', 'No liked videos',
-      PIXLECT.user ? 'Videos you like are saved here.' : 'Sign in with PIXLECT to save your likes.',
-      PIXLECT.user ? '' : `<button class="btn-primary" onclick="window.dispatchEvent(new Event('pixeltube:signin'))">Sign in with PIXLECT</button>`);
-  }
-  const list = videosSorted().filter(v => state.likes[v.id]);
-  return `
-    <div class="page-head">
-      <h1>Liked videos</h1>
-      <p>${list.length} video${list.length === 1 ? '' : 's'}</p>
-    </div>
-    <div class="grid">${list.map(cardHTML).join('')}</div>`;
-}
-
-function viewPlaylists() {
-  if (!PIXLECT.user) {
-    return emptyState('🎵', 'Sign in to use playlists',
-      'Playlists let you group videos and watch them in sequence.',
-      `<button class="btn-primary" onclick="window.dispatchEvent(new Event('pixeltube:signin'))">Sign in with PIXLECT</button>`);
-  }
-  const pls = playlistsOfUser();
-  return `
-    <div class="page-head">
-      <h1>Your playlists</h1>
-      <p>${pls.length} playlist${pls.length === 1 ? '' : 's'}</p>
-      <button class="btn-primary" id="newPlaylistBtn" style="margin-left:auto">+ New playlist</button>
-    </div>
-    ${pls.length
-      ? `<div class="grid">${pls.map(pl => {
-          const vids = playlistVideos(pl.id);
-          return `<a class="card" href="#/playlist/${esc(pl.id)}">
-            <div class="thumb" style="background:linear-gradient(135deg,var(--accent),var(--accent2));display:grid;place-items:center">
-              <svg viewBox="0 0 24 24" width="52" height="52" fill="rgba(255,255,255,.9)"><path d="M3 6h13v2H3zm0 5h13v2H3zm0 5h9v2H3zm14-1v6l5-3z"/></svg>
-              <span class="dur">${vids.length} video${vids.length === 1 ? '' : 's'}</span>
-            </div>
-            <div class="info">
-              <div style="min-width:0">
-                <h3>${esc(pl.name)}</h3>
-                <div class="sub">${vids.length ? 'Updated ' + esc(timeAgo(vids[0].createdAt)) : 'Empty playlist'}</div>
-              </div>
-            </div>
-          </a>`;
-        }).join('')}</div>`
-      : emptyState('🎵', 'No playlists yet', 'Create your first playlist to organize videos.', '')}`;
-}
-
-function viewPlaylist(pid) {
-  const pl = state.playlists[pid];
-  if (!pl) return emptyState('🚫', 'Playlist not found', '', `<a class="btn-ghost" href="#/playlists">Back to playlists</a>`);
-  const vids = playlistVideos(pid);
-  const isOwner = PIXLECT.user && pl.ownerUid === PIXLECT.user.uid;
-
-  return `
-    <div class="playlist-header">
-      <div class="playlist-cover">
-        <svg viewBox="0 0 24 24"><path d="M3 6h13v2H3zm0 5h13v2H3zm0 5h9v2H3zm14-1v6l5-3z"/></svg>
-      </div>
-      <div class="txt">
-        <h1>${esc(pl.name)}</h1>
-        <div class="meta">${esc(pl.ownerName || 'user')} · ${vids.length} video${vids.length === 1 ? '' : 's'}</div>
-      </div>
-      ${isOwner ? `<button class="btn-secondary" id="plDeleteBtn" style="color:var(--accent)">Delete playlist</button>` : ''}
-    </div>
-    ${vids.length
-      ? `<div class="playlist-videos">
-          ${vids.map((v, i) => {
-            const c = chanOf(v.id);
-            return `<div class="pl-item" data-pl-item="${esc(v.id)}">
-              <div class="idx">${i + 1}</div>
-              <a class="t" href="#/watch/${esc(v.id)}">${thumbHTML(v)}<span class="dur">${esc(v.dur)}</span></a>
-              <div class="info">
-                <a href="#/watch/${esc(v.id)}"><h4>${esc(v.title)}</h4></a>
-                <div class="sub">${esc(c.name)} · ${fmt(v.views)} views</div>
-              </div>
-              ${isOwner ? `<button class="remove" data-action="pl-remove" data-pid="${esc(pid)}" data-vid="${esc(v.id)}">Remove</button>` : ''}
-            </div>`;
-          }).join('')}
-        </div>`
-      : emptyState('📭', 'This playlist is empty', isOwner ? 'Add videos from any watch page.' : '', '')}
-  `;
-}
-
-function viewCreate() {
-  if (!PIXLECT.user) {
-    return emptyState('🎬', 'Sign in to upload',
-      'You need a PIXLECT account to publish videos on PIXELTube.',
-      `<button class="btn-primary" id="createSignIn">Sign in with PIXLECT</button>`);
-  }
-  if (!hasChannel()) {
-    return emptyState('🎬', 'Create your PIXELChannel first',
-      'Before uploading, you need a PIXELChannel. It takes ten seconds — pick a name, handle, and picture.',
-      `<button class="btn-primary" id="createChannelBtn">Create PIXELChannel</button>`);
-  }
-  const ch = myChannel();
-  return `
-    <div class="form-wrap">
-      <h1>Upload to PIXELTube</h1>
-      <p class="lede">Publish to <b>${esc(ch.name)}</b> (@${esc(ch.handle.replace(/^@/, ''))}). Upload an MP4 and we'll auto‑grab a thumbnail from the video — or pick your own below.</p>
-
-      <form id="createForm" autocomplete="off">
-        <div class="field">
-          <label for="f-title">Title *</label>
-          <input id="f-title" type="text" maxlength="120" required placeholder="What's your video called?" />
-        </div>
-
-        <div class="field">
-          <label>Video source *</label>
-          <div class="source-tabs">
-            <button type="button" class="source-tab active" data-source="upload">📁 Upload MP4</button>
-            <button type="button" class="source-tab" data-source="url">🔗 Paste URL</button>
-          </div>
-
-          <div id="paneUpload">
-            <div class="dropzone" id="dropzone">
-              <input type="file" id="f-file" accept="video/mp4,video/webm,video/quicktime" />
-              <div id="dropzoneEmpty">
-                <div class="dz-icon">⬆️</div>
-                <div class="dz-title">Click to choose or drop an MP4</div>
-                <div class="dz-sub">MP4, WebM, or MOV · recommended under 8 MB</div>
-              </div>
-              <div id="dropzoneFile" class="dz-file" style="display:none">
-                <div style="font-size:30px">🎬</div>
-                <div style="min-width:0;text-align:left">
-                  <div class="nm" id="dzFileName">video.mp4</div>
-                  <div class="sz" id="dzFileSize">—</div>
-                </div>
-              </div>
-              <div class="progress" id="progress" style="display:none">
-                <div class="bar" id="progressBar"></div>
-              </div>
-              <div class="lbl" id="progressLabel" style="display:none"></div>
-            </div>
-            <div class="size-warn" id="sizeWarn" style="display:none"></div>
-          </div>
-
-          <div id="paneUrl" style="display:none">
-            <input id="f-src" type="url" placeholder="https://example.com/video.mp4" />
-          </div>
-        </div>
-
-        <div class="field">
-          <label>Thumbnail</label>
-          <div class="thumb-preview" id="thumbPreview">
-            <div class="empty" id="thumbPreviewEmpty">No thumbnail yet — upload a video to auto‑generate one, or pick your own below.</div>
-            <img id="thumbPreviewImg" style="display:none" alt="" />
-            <span class="badge" id="thumbPreviewBadge" style="display:none">AUTO</span>
-          </div>
-          <div class="source-tabs" style="margin-top:6px">
-            <button type="button" class="source-tab thumb-tab active" data-thumb="auto">✨ Auto</button>
-            <button type="button" class="source-tab thumb-tab" data-thumb="upload">🖼️ Upload</button>
-            <button type="button" class="source-tab thumb-tab" data-thumb="url">🔗 URL</button>
-          </div>
-          <div id="thumbPaneAuto">
-            <div class="info-note" id="thumbAutoNote">Auto‑thumbnail will be captured from the MP4 you upload.</div>
-          </div>
-          <div id="thumbPaneUpload" style="display:none">
-            <div class="dropzone" id="thumbDropzone">
-              <input type="file" id="f-thumbfile" accept="image/*" />
-              <div id="thumbDzEmpty">
-                <div class="dz-icon">🖼️</div>
-                <div class="dz-title">Click to choose an image</div>
-                <div class="dz-sub">JPG, PNG, WebP · resized to ${THUMB_MAX_W}px wide</div>
-              </div>
-              <div id="thumbDzFile" class="dz-file" style="display:none">
-                <div style="font-size:30px">🖼️</div>
-                <div style="min-width:0;text-align:left">
-                  <div class="nm" id="thumbDzName">image.jpg</div>
-                  <div class="sz" id="thumbDzSize">—</div>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div id="thumbPaneUrl" style="display:none">
-            <input id="f-thumb" type="url" placeholder="https://example.com/thumb.jpg" />
-          </div>
-        </div>
-
-        <div class="form-row">
-          <div class="field">
-            <label for="f-kind">Type</label>
-            <select id="f-kind">
-              <option value="long">Long</option>
-              <option value="mini">Mini</option>
-            </select>
-          </div>
-          <div class="field">
-            <label for="f-dur">Duration</label>
-            <input id="f-dur" type="text" placeholder="e.g. 4:21" value="0:00" />
-          </div>
-        </div>
-
-        <div class="field">
-          <label for="f-desc">Description</label>
-          <textarea id="f-desc" maxlength="4000" placeholder="Tell viewers about your video…"></textarea>
-        </div>
-
-        <div class="form-actions">
-          <a class="btn-secondary" href="#/">Cancel</a>
-          <button type="submit" class="btn-primary" id="createSubmit">Publish</button>
-        </div>
-      </form>
-    </div>`;
-}
-
-const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
-
-function setupCreateForm() {
-  const signIn = document.getElementById('createSignIn');
-  if (signIn) signIn.onclick = pixlectSignIn;
-  const cc = document.getElementById('createChannelBtn');
-  if (cc) cc.onclick = promptCreateChannel;
-
-  const form = document.getElementById('createForm');
-  if (!form) return;
-
-  const tabs = $$('.source-tab[data-source]');
-  const paneUpload = document.getElementById('paneUpload');
-  const paneUrl = document.getElementById('paneUrl');
-  let sourceMode = 'upload';
-
-  tabs.forEach(t => t.addEventListener('click', () => {
-    tabs.forEach(x => x.classList.remove('active'));
-    t.classList.add('active');
-    sourceMode = t.dataset.source;
-    paneUpload.style.display = sourceMode === 'upload' ? '' : 'none';
-    paneUrl.style.display   = sourceMode === 'url'    ? '' : 'none';
-    if (sourceMode === 'url' && thumbMode === 'auto') {
-      thumbAutoNote.innerHTML = `<span style="color:var(--warn)">⚠️ Auto‑thumbnail works only for uploaded videos. Switch to <b>Upload</b> or <b>URL</b> for a URL source.</span>`;
-    } else {
-      thumbAutoNote.textContent = 'Auto‑thumbnail will be captured from the MP4 you upload.';
-    }
-  }));
-
-  const dropzone = document.getElementById('dropzone');
-  const fileInput = document.getElementById('f-file');
-  const dzEmpty = document.getElementById('dropzoneEmpty');
-  const dzFile = document.getElementById('dropzoneFile');
-  const dzFileName = document.getElementById('dzFileName');
-  const dzFileSize = document.getElementById('dzFileSize');
-  const progress = document.getElementById('progress');
-  const progressBar = document.getElementById('progressBar');
-  const progressLabel = document.getElementById('progressLabel');
-  const sizeWarn = document.getElementById('sizeWarn');
-
-  let uploadedDataUrl = null;
-  let autoThumbDataUrl = '';
-
-  function resetVideoFile() {
-    uploadedDataUrl = null;
-    fileInput.value = '';
-    dzEmpty.style.display = '';
-    dzFile.style.display = 'none';
-    dropzone.classList.remove('has-file');
-    progress.style.display = 'none';
-    progressBar.style.width = '0';
-    progressLabel.style.display = 'none';
-    sizeWarn.style.display = 'none';
-  }
-
-  function readFile(file) {
-    if (!file) return;
-    if (!/^video\//.test(file.type)) { toast('Please choose a video file'); return; }
-    sizeWarn.style.display = 'none';
-
-    if (file.size > MAX_UPLOAD_BYTES) {
-      sizeWarn.style.display = '';
-      sizeWarn.innerHTML = `⚠️ <b>${fmtBytes(file.size)}</b> is above the ${fmtBytes(MAX_UPLOAD_BYTES)} limit. Use the <b>Paste URL</b> tab for larger videos.`;
-      resetVideoFile();
-      return;
-    }
-
-    dzEmpty.style.display = 'none';
-    dzFile.style.display = 'flex';
-    dzFileName.textContent = file.name;
-    dzFileSize.textContent = fmtBytes(file.size) + ' · ' + file.type;
-    dropzone.classList.add('has-file');
-    progress.style.display = '';
-    progressBar.style.width = '0%';
-    progressLabel.style.display = '';
-    progressLabel.textContent = 'Reading file…';
-
-    const reader = new FileReader();
-    reader.onprogress = (ev) => {
-      if (ev.lengthComputable) {
-        const pct = Math.round((ev.loaded / ev.total) * 100);
-        progressBar.style.width = pct + '%';
-        progressLabel.textContent = `Reading… ${pct}%`;
-      }
-    };
-    reader.onload = () => {
-      uploadedDataUrl = reader.result;
-      progressBar.style.width = '100%';
-      progressLabel.textContent = 'Ready (' + fmtBytes(file.size) + ')';
-
-      // Auto-fill duration from the file
-      const v = document.createElement('video');
-      v.preload = 'metadata';
-      v.src = URL.createObjectURL(file);
-      v.addEventListener('loadedmetadata', () => {
-        if (isFinite(v.duration) && v.duration > 0) {
-          const d = Math.round(v.duration);
-          const mm = Math.floor(d / 60);
-          const ss = String(d % 60).padStart(2, '0');
-          document.getElementById('f-dur').value = `${mm}:${ss}`;
-        }
-        URL.revokeObjectURL(v.src);
-      }, { once: true });
-    };
-    reader.onerror = () => { toast('Could not read the file'); resetVideoFile(); };
-    reader.readAsDataURL(file);
-
-    thumbAutoNote.textContent = 'Capturing thumbnail…';
-    captureThumbnailFromFile(file).then((thumb) => {
-      if (thumb) {
-        autoThumbDataUrl = thumb;
-        thumbAutoNote.innerHTML = '✅ Auto‑thumbnail captured from the video.';
-        if (thumbMode === 'auto') updateThumbPreview();
-      } else {
-        autoThumbDataUrl = '';
-        thumbAutoNote.innerHTML = `<span style="color:var(--warn)">⚠️ Could not capture a frame. Upload an image or paste a URL instead.</span>`;
-        if (thumbMode === 'auto') updateThumbPreview();
-      }
-    });
-  }
-
-  dropzone.addEventListener('click', () => fileInput.click());
-  fileInput.addEventListener('change', (e) => readFile(e.target.files[0]));
-  dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('drag'); });
-  dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag'));
-  dropzone.addEventListener('drop', (e) => {
-    e.preventDefault();
-    dropzone.classList.remove('drag');
-    if (e.dataTransfer.files.length) readFile(e.dataTransfer.files[0]);
-  });
-
-  /* Thumbnail tabs */
-  const thumbTabs = $$('.thumb-tab');
-  const thumbPaneAuto = document.getElementById('thumbPaneAuto');
-  const thumbPaneUpload = document.getElementById('thumbPaneUpload');
-  const thumbPaneUrl = document.getElementById('thumbPaneUrl');
-  const thumbAutoNote = document.getElementById('thumbAutoNote');
-  const thumbPreviewImg = document.getElementById('thumbPreviewImg');
-  const thumbPreviewEmpty = document.getElementById('thumbPreviewEmpty');
-  const thumbPreviewBadge = document.getElementById('thumbPreviewBadge');
-
-  let thumbMode = 'auto';
-  let uploadedThumbDataUrl = '';
-  let urlThumbValue = '';
-
-  function currentThumb() {
-    if (thumbMode === 'auto')   return autoThumbDataUrl;
-    if (thumbMode === 'upload') return uploadedThumbDataUrl;
-    if (thumbMode === 'url')    return urlThumbValue.trim();
-    return '';
-  }
-
-  function updateThumbPreview() {
-    const val = currentThumb();
-    if (val) {
-      thumbPreviewImg.src = val;
-      thumbPreviewImg.style.display = 'block';
-      thumbPreviewEmpty.style.display = 'none';
-      thumbPreviewBadge.style.display = '';
-      thumbPreviewBadge.textContent = thumbMode === 'auto' ? 'AUTO' : (thumbMode === 'upload' ? 'UPLOADED' : 'URL');
-    } else {
-      thumbPreviewImg.removeAttribute('src');
-      thumbPreviewImg.style.display = 'none';
-      thumbPreviewEmpty.style.display = '';
-      thumbPreviewBadge.style.display = 'none';
-    }
-  }
-
-  thumbTabs.forEach(t => t.addEventListener('click', () => {
-    thumbTabs.forEach(x => x.classList.remove('active'));
-    t.classList.add('active');
-    thumbMode = t.dataset.thumb;
-    thumbPaneAuto.style.display   = thumbMode === 'auto'   ? '' : 'none';
-    thumbPaneUpload.style.display = thumbMode === 'upload' ? '' : 'none';
-    thumbPaneUrl.style.display    = thumbMode === 'url'    ? '' : 'none';
-    updateThumbPreview();
-  }));
-
-  const thumbDropzone = document.getElementById('thumbDropzone');
-  const thumbFileInput = document.getElementById('f-thumbfile');
-  const thumbDzEmpty = document.getElementById('thumbDzEmpty');
-  const thumbDzFile = document.getElementById('thumbDzFile');
-  const thumbDzName = document.getElementById('thumbDzName');
-  const thumbDzSize = document.getElementById('thumbDzSize');
-
-  function readThumbFile(file) {
-    if (!file) return;
-    if (!/^image\//.test(file.type)) { toast('Please choose an image file'); return; }
-    thumbDzEmpty.style.display = 'none';
-    thumbDzFile.style.display = 'flex';
-    thumbDzName.textContent = file.name;
-    thumbDzSize.textContent = fmtBytes(file.size) + ' · ' + file.type;
-    thumbDropzone.classList.add('has-file');
-    resizeImageFile(file).then((dataUrl) => {
-      if (dataUrl) { uploadedThumbDataUrl = dataUrl; updateThumbPreview(); }
-      else { toast('Could not read the image'); }
-    });
-  }
-
-  thumbDropzone.addEventListener('click', () => thumbFileInput.click());
-  thumbFileInput.addEventListener('change', (e) => readThumbFile(e.target.files[0]));
-  thumbDropzone.addEventListener('dragover', (e) => { e.preventDefault(); thumbDropzone.classList.add('drag'); });
-  thumbDropzone.addEventListener('dragleave', () => thumbDropzone.classList.remove('drag'));
-  thumbDropzone.addEventListener('drop', (e) => {
-    e.preventDefault();
-    thumbDropzone.classList.remove('drag');
-    if (e.dataTransfer.files.length) readThumbFile(e.dataTransfer.files[0]);
-  });
-
-  const thumbUrlInput = document.getElementById('f-thumb');
-  thumbUrlInput.addEventListener('input', () => {
-    urlThumbValue = thumbUrlInput.value;
-    if (thumbMode === 'url') updateThumbPreview();
-  });
-
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const btn = document.getElementById('createSubmit');
-    const title = document.getElementById('f-title').value.trim();
-    const kind  = document.getElementById('f-kind').value;
-    const dur   = document.getElementById('f-dur').value.trim() || '0:00';
-    const desc  = document.getElementById('f-desc').value.trim();
-
-    if (!title) { toast('Title is required'); return; }
-
-    let src = '';
-    if (sourceMode === 'url') {
-      src = document.getElementById('f-src').value.trim();
-      if (!src) { toast('Paste a video URL'); return; }
-    } else {
-      if (!uploadedDataUrl) { toast('Choose an MP4 file first'); return; }
-      src = uploadedDataUrl;
-    }
-
-    const thumb = currentThumb();
-
-    btn.disabled = true;
-    btn.textContent = sourceMode === 'upload' ? 'Saving to database…' : 'Publishing…';
-
-    const vid = await createVideo({ title, src, thumb, kind, dur, desc });
-    if (vid) {
-      toast('Video published 🎉');
-      location.hash = '#/watch/' + vid;
-    } else {
-      btn.disabled = false;
-      btn.textContent = 'Publish';
-    }
-  });
-}
-
-function viewWatch(vid) {
-  const v = state.videos[vid];
-  if (!v) return emptyState('🚫', 'Video not found', 'It may have been removed.', `<a class="btn-ghost" href="#/">Go home</a>`);
-  const c = chanOf(vid);
-  const liked = isLiked(vid);
-  const subbed = isSubbed(c.id);
-  const isMine = PIXLECT.user && v.createdBy === PIXLECT.user.uid;
-
-  const upNext = videosSorted().filter(x => x.id !== vid)
-    .sort((a, b) => (b.channelId === c.id) - (a.channelId === c.id))
-    .slice(0, 10);
-
-  const userIcon = PIXLECT.user
-    ? (myChannel()?.avatar
-        ? `<span class="pic"><img src="${esc(myChannel().avatar)}" alt=""></span>`
-        : `<span class="pic" style="background:${esc(myChannel()?.color || PIXLECT.user.icon?.bg || '#7c4dff')}">${esc(myChannel() ? initial(myChannel().name) : (PIXLECT.user.icon?.emoji || '👤'))}</span>`)
-    : `<span class="pic" style="background:#2a2a36">👤</span>`;
-
-  const commentForm = PIXLECT.user
-    ? `<form class="comment-form" id="commentForm">
-         ${userIcon}
-         <div class="input-wrap">
-           <textarea id="commentText" placeholder="Add a comment…" maxlength="2000"></textarea>
-           <div class="actions">
-             <button type="button" class="btn-secondary" id="commentCancel">Cancel</button>
-             <button type="submit" class="btn-primary" id="commentSubmit" disabled>Comment</button>
-           </div>
-         </div>
-       </form>`
-    : `<div class="no-comments">Sign in with PIXLECT to join the conversation.</div>`;
-
-  const myPls = playlistsOfUser();
-  const plMenu = myPls.length
-    ? `<div style="position:relative"><button class="pill" id="savePlBtn">
-         <svg viewBox="0 0 24 24"><path d="M3 6h13v2H3zm0 5h13v2H3zm0 5h9v2H3zm14-1v6l5-3z"/></svg>
-         Save
-       </button>
-       <div id="savePlMenu" style="display:none;position:absolute;top:calc(100% + 8px);right:0;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:6px;min-width:220px;box-shadow:0 18px 50px rgba(0,0,0,.7);z-index:90">
-         ${myPls.map(pl => `<button data-action="pl-add" data-pid="${esc(pl.id)}" data-vid="${esc(vid)}" style="display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:9px 12px;border-radius:8px;font-size:13.5px;font-weight:600;color:var(--text)">
-           <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" opacity="0.7"><path d="M3 6h13v2H3zm0 5h13v2H3zm0 5h9v2H3zm14-1v6l5-3z"/></svg>
-           ${esc(pl.name)}
-         </button>`).join('')}
-         <div style="height:1px;background:var(--line);margin:6px 4px"></div>
-         <button id="newPlBtn" style="display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:9px 12px;border-radius:8px;font-size:13.5px;font-weight:600;color:var(--text)">
-           <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" opacity="0.7"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6z"/></svg>
-           New playlist
-         </button>
-       </div></div>`
-    : `<button class="pill" id="newPlBtn">
-         <svg viewBox="0 0 24 24"><path d="M3 6h13v2H3zm0 5h13v2H3zm0 5h9v2H3zm14-1v6l5-3z"/></svg>
-         Save
-       </button>`;
-
-  const deleteBtn = isMine
-    ? `<button class="pill" data-action="del-video" data-video="${esc(vid)}" style="color:var(--accent)">
-         <svg viewBox="0 0 24 24"><path d="M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6zM19 4h-3.5l-1-1h-5l-1 1H5v2h14z"/></svg>
-         Delete
-       </button>` : '';
-
-  return `
-  <div class="watch">
-    <div>
-      <div class="player">
-        <div class="loading">Loading video…</div>
-        <video data-vid="${esc(vid)}" controls autoplay playsinline poster="${esc(v.thumb || '')}"></video>
-      </div>
-
-      <h1 class="w-title">${esc(v.title)}</h1>
-
-      <div class="w-row">
-        <div class="w-chan">
-          ${avatarHTML(c, 'lg')}
-          <div style="min-width:0">
-            <a class="nm" href="#/channel/${esc(c.id)}">${esc(c.name)}</a>
-            <div class="sb" data-dyn="subcount" data-channel="${esc(c.id)}">${fmt(subsOf(c.id))} subscribers</div>
-          </div>
-        </div>
-
-        <button class="btn-sub ${subbed ? 'subbed' : ''}" data-action="sub"
-                data-channel="${esc(c.id)}" data-dyn="sub">${subbed ? 'Subscribed' : 'Subscribe'}</button>
-
-        <button class="pill ${liked ? 'active' : ''}" data-action="like"
-                data-video="${esc(vid)}" data-dyn="like">
-          <svg viewBox="0 0 24 24"><path d="M2 20h3V9H2zm19.8-9.4c0-.9-.7-1.6-1.6-1.6h-5l.8-3.9.03-.3c0-.3-.1-.6-.3-.8L14.9 3 9.4 8.6c-.3.2-.4.6-.4.9V18c0 .9.7 1.6 1.6 1.6h7.2c.7 0 1.2-.4 1.4-1l2.4-5.7c.1-.2.1-.4.1-.6z"/></svg>
-          <span class="lbl">${fmt(likesOf(vid))}</span>
-        </button>
-
-        ${plMenu}
-
-        <button class="pill" data-action="share" data-video="${esc(vid)}">
-          <svg viewBox="0 0 24 24"><path d="M14 9V5l7 7-7 7v-4.1C9.5 12.9 5.6 14.4 3 18c.5-4.5 2.9-8 11-9z"/></svg>
-          Share
-        </button>
-
-        ${deleteBtn}
-      </div>
-
-      <div class="desc">
-        <span class="stats" data-dyn="views" data-video="${esc(vid)}">${fmt(viewsOf(vid))} views</span>
-        <span class="stats" style="font-weight:600;color:var(--muted);display:inline">· ${esc(timeAgo(v.createdAt))} · ${fmt(likesOf(vid))} likes · ${v.kind === 'mini' ? 'Mini' : 'Long'}</span>
-        <div style="margin-top:8px">${esc(v.desc || '')}</div>
-      </div>
-
-      <section class="comments">
-        <h2>Comments</h2>
-        ${commentForm}
-        <div class="comment-list" id="commentList">
-          <div class="no-comments">Loading comments…</div>
-        </div>
-      </section>
-    </div>
-
-    <aside class="upnext">
-      <h2>Up next</h2>
-      ${upNext.length ? upNext.map(x => {
-        const xc = chanOf(x.id);
-        return `<a class="mini-card" href="#/watch/${esc(x.id)}">
-          <div class="t">${thumbHTML(x)}<span class="dur">${esc(x.dur)}</span></div>
-          <div style="min-width:0">
-            <h4>${esc(x.title)}</h4>
-            <div class="sub">${esc(xc.name)}</div>
-            <div class="sub">${fmt(x.views)} views · ${esc(timeAgo(x.createdAt))}</div>
-          </div>
-        </a>`;
-      }).join('') : `<div class="no-comments">No other videos yet.</div>`}
-    </aside>
-  </div>`;
-}
-
-function setupCommentForm(vid) {
-  const form = document.getElementById('commentForm');
-  if (!form) return;
-  const ta = document.getElementById('commentText');
-  const submit = document.getElementById('commentSubmit');
-  const cancel = document.getElementById('commentCancel');
-  ta.addEventListener('input', () => { submit.disabled = !ta.value.trim(); });
-  cancel.addEventListener('click', () => { ta.value = ''; submit.disabled = true; });
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const text = ta.value.trim();
-    if (!text) return;
-    submit.disabled = true;
-    submit.textContent = 'Posting…';
-    await addComment(vid, text);
-    ta.value = '';
-    submit.textContent = 'Comment';
-  });
-
-  // Playlist save menu
-  const saveBtn = document.getElementById('savePlBtn');
-  const saveMenu = document.getElementById('savePlMenu');
-  if (saveBtn && saveMenu) {
-    saveBtn.onclick = (e) => { e.stopPropagation(); saveMenu.style.display = saveMenu.style.display === 'none' ? 'block' : 'none'; };
-    document.addEventListener('click', () => saveMenu.style.display = 'none');
-  }
-  const newPlBtn = document.getElementById('newPlBtn');
-  if (newPlBtn) newPlBtn.onclick = () => {
-    const name = prompt('Playlist name:');
-    if (name) createPlaylist(name).then((pid) => {
-      if (pid) {
-        addToPlaylist(pid, vid);
-        toast('Saved to playlist');
-      }
-    });
-  };
-}
-
-function viewChannel(cid) {
-  const c = state.channels[cid];
-  if (!c) return emptyState('🚫', 'Channel not found', '', `<a class="btn-ghost" href="#/">Go home</a>`);
-  const list = videosSorted().filter(v => v.channelId === cid);
-  const longs = list.filter(v => v.kind !== 'mini');
-  const minis = list.filter(v => v.kind === 'mini');
-  const subbed = isSubbed(cid);
-  const isMine = PIXLECT.user && c.ownerUid === PIXLECT.user.uid;
-  const bannerStyle = c.banner
-    ? `background-image:url('${esc(c.banner)}')`
-    : `background:linear-gradient(120deg,${esc(c.color)},#12121a 70%)`;
-
-  return `
-    <div class="banner" style="${bannerStyle}"></div>
-    <div class="chan-head">
-      ${avatarHTML(c, 'lg')}
-      <div class="txt">
-        <h1>${esc(c.name)}</h1>
-        <div class="meta">
-          ${esc(c.handle)} ·
-          <span data-dyn="subcount" data-channel="${esc(cid)}">${fmt(subsOf(cid))} subscribers</span> ·
-          ${list.length} video${list.length === 1 ? '' : 's'}
-        </div>
-      </div>
-      ${isMine
-        ? `<button class="btn-secondary" id="editChBtn">Edit channel</button>`
-        : `<button class="btn-sub ${subbed ? 'subbed' : ''}" data-action="sub" data-channel="${esc(cid)}" data-dyn="sub">${subbed ? 'Subscribed' : 'Subscribe'}</button>`}
-    </div>
-    ${minis.length ? `
-      <section class="shorts-shelf">
-        <div class="shelf-head">
-          <div class="icon"><svg viewBox="0 0 24 24"><path d="M13 2L4.5 13H11l-1 9L18.5 11H12z"/></svg></div>
-          <h2>Minis</h2>
-        </div>
-        <div class="shorts-rail">${minis.map(shortCardHTML).join('')}</div>
-      </section>` : ''}
-    ${longs.length
-      ? `<div class="grid">${longs.map(cardHTML).join('')}</div>`
-      : (minis.length ? '' : emptyState('📭', 'No videos on this channel yet', 'When they upload, they\'ll appear here.', ''))}
-  `;
-}
-
-/* ============================================================
-   EVENTS
-   ============================================================ */
-document.addEventListener('click', e => {
-  const el = e.target.closest('[data-action]');
-  if (!el) return;
-  const action = el.dataset.action;
-
-  if (action === 'menu') { e.preventDefault(); document.body.classList.toggle('nav-open'); return; }
-  if (action === 'like') { e.preventDefault(); e.stopPropagation(); toggleLike(el.dataset.video); return; }
-  if (action === 'sub')  { e.preventDefault(); e.stopPropagation(); toggleSub(el.dataset.channel); return; }
-  if (action === 'mute') {
-    e.preventDefault();
-    const mini = el.closest('.mini');
-    if (!mini) return;
-    const v = mini.querySelector('video');
-    v.muted = !v.muted;
-    el.textContent = v.muted ? '🔇' : '🔊';
-    return;
-  }
-  if (action === 'share') {
-    e.preventDefault();
-    const url = location.origin + location.pathname + '#/watch/' + el.dataset.video;
-    navigator.clipboard?.writeText(url).then(() => toast('Link copied'), () => toast(url));
-    return;
-  }
-  if (action === 'del-video') {
-    e.preventDefault();
-    if (!confirm('Delete this video permanently?')) return;
-    deleteVideo(el.dataset.video).then(() => { location.hash = '#/'; toast('Video deleted'); });
-    return;
-  }
-  if (action === 'pl-add') {
-    e.preventDefault();
-    addToPlaylist(el.dataset.pid, el.dataset.vid);
-    toast('Added to playlist');
-    return;
-  }
-  if (action === 'pl-remove') {
-    e.preventDefault();
-    removeFromPlaylist(el.dataset.pid, el.dataset.vid);
-    toast('Removed from playlist');
-    render(true);
-    return;
-  }
-});
-
-window.addEventListener('pixeltube:signin', pixlectSignIn);
-
-/* Video "play" event to count views */
-document.addEventListener('play', (e) => {
-  const v = e.target;
-  if (v.tagName === 'VIDEO' && v.dataset.vid) registerView(v.dataset.vid);
-}, true);
-
-$('#searchInput').addEventListener('input', e => {
-  state.search = e.target.value.trim();
-  if (state.route[0] !== 'home' && state.search) location.hash = '#/';
-  else render(true);
-});
-
-/* Empty state CTA */
-document.addEventListener('click', (e) => {
-  if (e.target.id === 'emptyCreateChannel') promptCreateChannel();
-});
-
-/* Playlist page actions */
-document.addEventListener('click', (e) => {
-  if (e.target.id === 'newPlaylistBtn') {
-    const name = prompt('Playlist name:');
-    if (name) createPlaylist(name).then(pid => { if (pid) location.hash = '#/playlist/' + pid; });
-  }
-  if (e.target.id === 'plDeleteBtn') {
-    const pid = state.route[1];
-    if (!confirm('Delete this playlist?')) return;
-    deletePlaylist(pid).then(() => { location.hash = '#/playlists'; toast('Playlist deleted'); });
-  }
-  if (e.target.id === 'editChBtn') promptEditChannel();
-});
-
-/* ---------- GO ---------- */
-state.route = parseRoute();
-renderTopbar();
-renderSidebar();
-render(true);
-boot();
-</script>
+<script type="module" src="./js/main.js"></script>
 </body>
 </html>
