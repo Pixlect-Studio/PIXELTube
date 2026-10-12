@@ -1,6 +1,7 @@
 /* ============================================================
    PIXELTube — video_mini.js
    Vertical TikTok-style Mini viewer + the Minis feed.
+   Includes admin/owner delete button.
    ============================================================ */
 import { esc, fmt, avatarHTML, thumbHTML } from './helpers.js';
 
@@ -9,7 +10,7 @@ import { esc, fmt, avatarHTML, thumbHTML } from './helpers.js';
    Opened by clicking a Short card (routes to #/mini/{vid}).
    ============================================================ */
 export function viewMiniViewer(ctx, currentVid) {
-  const { minisSorted, chanOf, emptyState } = ctx;
+  const { minisSorted, chanOf, emptyState, PIXLECT, isAdmin } = ctx;
   const list = minisSorted();
   if (!list.length) {
     return emptyState('⚡', 'Mini not found', 'It may have been removed.',
@@ -20,6 +21,7 @@ export function viewMiniViewer(ctx, currentVid) {
 
   return list.map(v => {
     const c = chanOf(v.id);
+    const canDelete = PIXLECT.user && (v.createdBy === PIXLECT.user.uid || isAdmin());
     return `
     <section class="mini" data-mini="${esc(v.id)}" id="mini-${esc(v.id)}">
       <div class="mini-inner">
@@ -59,6 +61,15 @@ export function viewMiniViewer(ctx, currentVid) {
               <svg viewBox="0 0 24 24"><path d="M14 9V5l7 7-7 7v-4.1C9.5 12.9 5.6 14.4 3 18c.5-4.5 2.9-8 11-9z"/></svg>
             </span>
           </button>
+
+          ${canDelete ? `
+          <button class="rail-btn" data-action="del-video" data-video="${esc(v.id)}"
+                  title="Delete" type="button" style="color:var(--accent)">
+            <span class="circ">
+              <svg viewBox="0 0 24 24"><path d="M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6zM19 4h-3.5l-1-1h-5l-1 1H5v2h14z"/></svg>
+            </span>
+            <span class="lbl">Delete</span>
+          </button>` : ''}
         </div>
 
         <div class="bottom">
@@ -78,7 +89,7 @@ export function viewMiniViewer(ctx, currentVid) {
    MINIS FEED — full-screen vertical scroll page at #/minis
    ============================================================ */
 export function viewMinis(ctx) {
-  const { minisSorted, chanOf, emptyState, hasChannel, PIXLECT } = ctx;
+  const { minisSorted, chanOf, emptyState, hasChannel, PIXLECT, isAdmin } = ctx;
   const list = minisSorted();
 
   if (!list.length) {
@@ -97,6 +108,7 @@ export function viewMinis(ctx) {
 
   return list.map(v => {
     const c = chanOf(v.id);
+    const canDelete = PIXLECT.user && (v.createdBy === PIXLECT.user.uid || isAdmin());
     return `
     <section class="mini" data-mini="${esc(v.id)}">
       <div class="mini-inner">
@@ -128,6 +140,15 @@ export function viewMinis(ctx) {
               <svg viewBox="0 0 24 24"><path d="M12 12a5 5 0 1 0-5-5 5 5 0 0 0 5 5zm0 2c-4 0-8 2-8 4.5V21h16v-2.5C20 16 16 14 12 14z"/></svg>
             </span>
           </button>
+
+          ${canDelete ? `
+          <button class="rail-btn" data-action="del-video" data-video="${esc(v.id)}"
+                  title="Delete" type="button" style="color:var(--accent)">
+            <span class="circ">
+              <svg viewBox="0 0 24 24"><path d="M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6zM19 4h-3.5l-1-1h-5l-1 1H5v2h14z"/></svg>
+            </span>
+            <span class="lbl">Delete</span>
+          </button>` : ''}
         </div>
 
         <div class="bottom">
