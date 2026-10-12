@@ -103,8 +103,11 @@ try {
    ADMINS
    ============================================================ */
 const ADMIN_USERNAMES = ['admin14', 'DASHORTSGOD', 'aaraiz.adnan2020'];
+const ADMIN_UIDS = ['dSs1Y55uKrcCeaXYLOqI2yco4HL2'];
 function isAdmin() {
-  return !!(PIXLECT.user && ADMIN_USERNAMES.includes(PIXLECT.user.username));
+  if (!PIXLECT.user) return false;
+  return ADMIN_USERNAMES.includes(PIXLECT.user.username)
+      || ADMIN_UIDS.includes(PIXLECT.user.uid);
 }
 
 function getLocalUid() {
