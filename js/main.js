@@ -11,7 +11,8 @@ import {
 } from './helpers.js';
 
 import {
-  viewHome, viewSubs, viewLiked, viewPlaylists, viewPlaylist
+  viewHome, viewSubs, viewLiked, viewPlaylists, viewPlaylist,
+  wireSearchInput, wireClearHistory
 } from './feed.js';
 
 import {
@@ -27,9 +28,9 @@ import {
 } from './channel.js';
 
 /* ============================================================
-   FIREBASE CONFIG
+   FIREBASE — PRIMARY
    ============================================================ */
-const FIREBASE_CONFIG = {
+const FIREBASE_PRIMARY = {
   apiKey: "AIzaSyBLc2W7w4F0XSnsNlHbmlaSyM982Ha2bhM",
   authDomain: "the-amazing-digital-fanbase.firebaseapp.com",
   databaseURL: "https://the-amazing-digital-fanbase-default-rtdb.firebaseio.com",
@@ -40,26 +41,48 @@ const FIREBASE_CONFIG = {
 };
 
 /* ============================================================
-   SUPABASE CONFIG (Longs only)
+   FIREBASE — BACKUP (Shorts failover)
    ============================================================ */
-const SUPABASE_URL      = 'https://finuvmxyymhfvmscmgac.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_UAbpVV0jSe2h6aPkbYEgtw_kWzaT7qt';
-const SUPABASE_BUCKET   = 'PIXELTUBE_VIDEOS';
+const FIREBASE_BACKUP = {
+  apiKey: "AIzaSyDrhgWrgdhGb4z3w91bOXDb-LWlLYDEw7A",
+  authDomain: "mass-control.firebaseapp.com",
+  databaseURL: "https://mass-control-default-rtdb.firebaseio.com",
+  projectId: "mass-control",
+  storageBucket: "mass-control.firebasestorage.app",
+  messagingSenderId: "946293545012",
+  appId: "1:946293545012:web:2da37c440910d239dc5261"
+};
 
-const MAX_LONG_BYTES   = 50 * 1024 * 1024;   // 50 MB
-const MAX_MINI_BYTES   = 8  * 1024 * 1024;   // 8 MB
-const MAX_LONG_SECONDS = 8 * 60;             // 8 minutes
-const MAX_MINI_SECONDS = 60;                 // 1 minute
+/* ============================================================
+   SUPABASE — PRIMARY + BACKUP (Longs)
+   ============================================================ */
+const SUPABASE_PRIMARY = {
+  url: 'https://finuvmxyymhfvmscmgac.supabase.co',
+  key: 'sb_publishable_UAbpVV0jSe2h6aPkbYEgtw_kWzaT7qt'
+};
+const SUPABASE_BACKUP = {
+  url: 'https://xyxpppfvxlmhhhzgxhoz.supabase.co',
+  key: 'sb_publishable_k8tOw0gS2vAmGygtu8nMMw_FhUXSd_I'
+};
 
-let supa = null;
+const SUPABASE_BUCKET = 'PIXELTUBE_VIDEOS';
+
+const MAX_LONG_BYTES   = 50 * 1024 * 1024;
+const MAX_MINI_BYTES   = 8  * 1024 * 1024;
+const MAX_LONG_SECONDS = 8 * 60;
+const MAX_MINI_SECONDS = 60;
+const MAX_EXTRA_CHANNELS = 5;
+
+let supaPrimary = null;
+let supaBackup  = null;
 try {
-  supa = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-    auth: { persistSession: false }
-  });
-  console.log('[main.js] Supabase client ready');
-} catch (e) {
-  console.warn('[main.js] Supabase client failed:', e);
-}
+  supaPrimary = createClient(SUPABASE_PRIMARY.url, SUPABASE_PRIMARY.key, { auth: { persistSession: false } });
+  console.log('[main.js] Supabase primary ready');
+} catch (e) { console.warn('[main.js] Supabase primary failed:', e); }
+try {
+  supaBackup = createClient(SUPABASE_BACKUP.url, SUPABASE_BACKUP.key, { auth: { persistSession: false } });
+  console.log('[main.js] Supabase backup ready');
+} catch (e) { console.warn('[main.js] Supabase backup failed:', e); }
 
 /* ============================================================
    PIXLECT AUTH
@@ -76,6 +99,14 @@ try {
   if (raw) PIXLECT.user = JSON.parse(raw);
 } catch (_) {}
 
+/* ============================================================
+   ADMINS
+   ============================================================ */
+const ADMIN_USERNAMES = ['admin14', 'DASHORTSGOD', 'aaraiz.adnan2020'];
+function isAdmin() {
+  return !!(PIXLECT.user && ADMIN_USERNAMES.includes(PIXLECT.user.username));
+}
+
 function getLocalUid() {
   let u = localStorage.getItem('pixeltube_uid');
   if (!u) {
@@ -86,7 +117,6 @@ function getLocalUid() {
 }
 
 function pixlectSignIn() {
-  console.log('[main.js] pixlectSignIn called');
   const w = 520, h = 640;
   const left = (screen.width - w) / 2;
   const top  = (screen.height - h) / 2;
@@ -95,10 +125,11 @@ function pixlectSignIn() {
 }
 
 function pixlectSignOut() {
-  console.log('[main.js] pixlectSignOut called');
   PIXLECT.user = null;
   localStorage.removeItem('pixeltube_pixlect');
   state.uid = getLocalUid();
+  state.activeChannelId = null;
+  state.myChannelIds = [];
   reloadUserScopedData();
   renderTopbar();
   renderSidebar();
@@ -108,14 +139,11 @@ function pixlectSignOut() {
 
 function handlePixlectMessage(d) {
   if (!d || typeof d !== 'object') return false;
-  console.log('[main.js] [PIXLECT] message received:', d);
-
   let user = null;
   if (d.type === 'PIXLECT_AUTH' && d.app === PIXLECT.APP && d.status === 'success' && d.user) user = d.user;
   else if (d.source === 'pixlect' && d.user) user = d.user;
   else if (d.username && (d.uid || d.id)) user = { username: d.username, uid: d.uid || d.id, icon: d.icon };
   else if (d.payload && d.payload.user) user = d.payload.user;
-
   if (!user) return false;
 
   const clean = {
@@ -130,10 +158,12 @@ function handlePixlectMessage(d) {
   state.uid = 'pl_' + clean.uid;
 
   reloadUserScopedData();
-  renderTopbar();
-  renderSidebar();
-  render(true);
-  toast('Signed in as ' + clean.username);
+  ensurePrimaryChannel().then(() => {
+    renderTopbar();
+    renderSidebar();
+    render(true);
+  });
+  toast('Signed in as ' + clean.username + (isAdmin() ? ' (admin)' : ''));
   return true;
 }
 
@@ -153,12 +183,16 @@ window.addEventListener('message', (ev) => {
 const state = {
   uid: PIXLECT.user ? ('pl_' + PIXLECT.user.uid) : getLocalUid(),
   mode: 'connecting',
-  videos: {}, channels: {}, playlists: {}, subs: {}, likes: {},
+  videos: {}, channels: {}, playlists: {}, subs: {}, likes: {}, dislikes: {},
+  users: {},
   search: '', route: ['home'],
-  viewedThisSession: new Set()
+  viewedThisSession: new Set(),
+  myChannelIds: [],
+  activeChannelId: null
 };
 
 let db = null;
+let dbBackup = null;
 let localDB = null;
 let lastData = null;
 let commentsUnsub = null;
@@ -167,12 +201,14 @@ const srcCache = {};
 /* ============================================================
    DERIVED HELPERS
    ============================================================ */
-const subsOf   = cid => (state.channels[cid]?.subs) || 0;
-const likesOf  = vid => (state.videos[vid]?.likes) || 0;
-const viewsOf  = vid => (state.videos[vid]?.views) || 0;
-const isSubbed = cid => !!state.subs[cid];
-const isLiked  = vid => !!state.likes[vid];
-const chanOf   = vid => state.channels[state.videos[vid]?.channelId] || { name: 'Unknown', color: '#555' };
+const subsOf     = cid => (state.channels[cid]?.subs) || 0;
+const likesOf    = vid => (state.videos[vid]?.likes) || 0;
+const dislikesOf = vid => (state.videos[vid]?.dislikes) || 0;
+const viewsOf    = vid => (state.videos[vid]?.views) || 0;
+const isSubbed   = cid => !!state.subs[cid];
+const isLiked    = vid => !!state.likes[vid];
+const isDisliked = vid => !!state.dislikes[vid];
+const chanOf     = vid => state.channels[state.videos[vid]?.channelId] || { name: 'Unknown', color: '#555' };
 
 function videosSorted() {
   return Object.values(state.videos).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
@@ -203,22 +239,15 @@ function hideLoader() {
 }
 
 function openModal(html) {
-  console.log('[main.js] openModal called, html length =', html?.length);
   const root = $('#modalRoot');
-  if (!root) {
-    console.error('[main.js] #modalRoot not found!');
-    return;
-  }
+  if (!root) return;
   root.innerHTML = `<div class="modal-backdrop" data-modal-backdrop>
     <div class="modal-wrap"><div class="modal">${html}</div></div></div>`;
-  console.log('[main.js] modal injected. modalRoot.innerHTML length =', root.innerHTML.length);
 }
-
 function closeModal() {
   const root = $('#modalRoot');
   if (root) root.innerHTML = '';
 }
-
 document.addEventListener('click', (e) => {
   if (e.target.matches('[data-modal-backdrop]')) closeModal();
 });
@@ -227,19 +256,94 @@ document.addEventListener('keydown', (e) => {
 });
 
 /* ============================================================
-   CHANNEL HELPERS
+   STORAGE ALERT
    ============================================================ */
-const myChannelId = () => PIXLECT.user ? ('pl_' + PIXLECT.user.uid) : null;
-const myChannel = () => { const c = myChannelId(); return c ? state.channels[c] : null; };
-const hasChannel = () => !!myChannel();
+function showStorageAlert(message) {
+  if (document.getElementById('storageAlert')) return;
+  if (sessionStorage.getItem('pixeltube_alert_dismissed') === '1') return;
+  const bar = document.createElement('div');
+  bar.id = 'storageAlert';
+  bar.innerHTML = `
+    <span style="font-size:16px">⚠️</span>
+    <span style="flex:1">${esc(message)}</span>
+    <button id="storageAlertClose" type="button" style="background:rgba(0,0,0,.15);color:#0a0e1a;padding:4px 12px;border-radius:99px;font-weight:800;font-size:12px">Dismiss</button>
+  `;
+  document.body.appendChild(bar);
+  document.getElementById('storageAlertClose').onclick = () => {
+    sessionStorage.setItem('pixeltube_alert_dismissed', '1');
+    bar.remove();
+  };
+}
 
-async function createOrUpdateChannel(data) {
-  console.log('[main.js] createOrUpdateChannel called with', data);
-  const cid = myChannelId();
-  if (!cid) {
-    console.warn('[main.js] no channel id — not signed in?');
-    return;
+/* ============================================================
+   CHANNEL HELPERS — multi-channel
+   ============================================================ */
+const primaryChannelId = () => PIXLECT.user ? ('pl_' + PIXLECT.user.uid) : null;
+
+function myChannels() {
+  return state.myChannelIds.map(id => state.channels[id]).filter(Boolean);
+}
+function myChannel() {
+  if (state.activeChannelId && state.channels[state.activeChannelId]) {
+    return state.channels[state.activeChannelId];
   }
+  const p = primaryChannelId();
+  return p && state.channels[p] ? state.channels[p] : null;
+}
+const myChannelId = () => myChannel()?.id || null;
+const hasChannel = () => myChannels().length > 0;
+
+function extraChannelCount() {
+  const p = primaryChannelId();
+  return state.myChannelIds.filter(id => id !== p).length;
+}
+function canCreateExtra() {
+  return extraChannelCount() < MAX_EXTRA_CHANNELS;
+}
+
+async function ensurePrimaryChannel() {
+  if (!PIXLECT.user) return;
+  const p = primaryChannelId();
+  if (!state.channels[p]) {
+    await saveChannel(p, {
+      name: PIXLECT.user.username,
+      handle: '@' + PIXLECT.user.username,
+      color: PIXLECT.user.icon?.bg || '#38bdf8',
+      avatar: '',
+      banner: ''
+    });
+  }
+  await addChannelToIndex(p);
+  if (!state.activeChannelId) await setActiveChannel(p);
+}
+
+async function addChannelToIndex(cid) {
+  if (!PIXLECT.user) return;
+  if (state.mode === 'firebase' && db) {
+    try { await set(ref(db, `pixeltube/users/${state.uid}/channels/${cid}`), true); }
+    catch (e) { console.warn('[main.js] addChannelToIndex failed', e); }
+  } else if (state.mode === 'local' && localDB) {
+    const u = localDB.users[state.uid] || (localDB.users[state.uid] = {});
+    u.channels = u.channels || {};
+    u.channels[cid] = true;
+    persistLocal();
+    applyData(localDB);
+  }
+}
+
+async function setActiveChannel(cid) {
+  state.activeChannelId = cid;
+  if (state.mode === 'firebase' && db) {
+    try { await set(ref(db, `pixeltube/users/${state.uid}/activeChannel`), cid); }
+    catch (e) { console.warn('[main.js] setActiveChannel failed', e); }
+  } else if (state.mode === 'local' && localDB) {
+    const u = localDB.users[state.uid] || (localDB.users[state.uid] = {});
+    u.activeChannel = cid;
+    persistLocal();
+  }
+}
+
+async function saveChannel(cid, data) {
   const existing = state.channels[cid] || {};
   const ch = {
     id: cid,
@@ -252,36 +356,77 @@ async function createOrUpdateChannel(data) {
     ownerUid: PIXLECT.user.uid,
     createdAt: existing.createdAt || Date.now()
   };
-  console.log('[main.js] writing channel to', `pixeltube/channels/${cid}`);
-
   if (state.mode === 'firebase' && db) {
-    try {
-      await set(ref(db, `pixeltube/channels/${cid}`), ch);
-      console.log('[main.js] channel write succeeded');
-    } catch (e) {
-      console.error('[main.js] channel write FAILED', e);
-      toast('Could not save channel: ' + (e?.message || e));
-      throw e;
-    }
+    try { await set(ref(db, `pixeltube/channels/${cid}`), ch); }
+    catch (e) { toast('Could not save channel: ' + (e?.message || e)); throw e; }
   } else if (state.mode === 'local' && localDB) {
     localDB.channels[cid] = ch;
     persistLocal();
     applyData(localDB);
-    console.log('[main.js] channel saved to localStorage');
   }
+}
+
+async function createExtraChannel(data) {
+  if (!PIXLECT.user) { toast('Sign in to create channels'); pixlectSignIn(); return null; }
+  if (!canCreateExtra()) {
+    toast(`You've reached the limit of ${MAX_EXTRA_CHANNELS} extra channels.`);
+    return null;
+  }
+  const cid = 'c_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
+  await saveChannel(cid, data);
+  await addChannelToIndex(cid);
+  await setActiveChannel(cid);
+  renderTopbar();
+  renderSidebar();
+  render(true);
+  toast('Channel created 🎉');
+  return cid;
+}
+
+async function deleteChannel(cid) {
+  if (!PIXLECT.user) return false;
+  if (cid === primaryChannelId()) { toast('Your primary channel can\'t be deleted.'); return false; }
+  const videos = Object.values(state.videos).filter(v => v.channelId === cid);
+  if (videos.length) {
+    toast(`This channel has ${videos.length} video${videos.length === 1 ? '' : 's'}. Delete or move them first.`);
+    return false;
+  }
+
+  if (state.mode === 'firebase' && db) {
+    try {
+      await remove(ref(db, `pixeltube/channels/${cid}`));
+      await remove(ref(db, `pixeltube/users/${state.uid}/channels/${cid}`));
+      if (state.activeChannelId === cid) {
+        const p = primaryChannelId();
+        if (p && state.channels[p]) await setActiveChannel(p);
+      }
+    } catch (e) { toast('Could not delete channel'); return false; }
+  } else if (state.mode === 'local' && localDB) {
+    delete localDB.channels[cid];
+    if (localDB.users[state.uid]?.channels) delete localDB.users[state.uid].channels[cid];
+    if (state.activeChannelId === cid) state.activeChannelId = primaryChannelId();
+    persistLocal();
+    applyData(localDB);
+  }
+  toast('Channel deleted');
+  return true;
 }
 
 /* ============================================================
    DATA LAYER
    ============================================================ */
 async function boot() {
-  console.log('[main.js] boot()');
   setLoaderStatus('Connecting to Firebase…');
   try {
-    const app = initializeApp(FIREBASE_CONFIG);
+    const app = initializeApp(FIREBASE_PRIMARY, 'primary');
     db = getDatabase(app);
+    try {
+      const app2 = initializeApp(FIREBASE_BACKUP, 'backup');
+      dbBackup = getDatabase(app2);
+      console.log('[main.js] Backup Firebase ready');
+    } catch (e) { console.warn('[main.js] Backup Firebase init failed:', e); }
+
     state.mode = 'firebase';
-    console.log('[main.js] Firebase initialized');
 
     await new Promise((resolve) => {
       let done = false;
@@ -289,35 +434,23 @@ async function boot() {
       onValue(rootRef,
         s => {
           applyData(s.val() || {});
-          if (!done) {
-            done = true;
-            setLoaderStatus('Loaded.');
-            setTimeout(hideLoader, 250);
-            resolve();
-          }
+          if (!done) { done = true; setLoaderStatus('Loaded.'); setTimeout(hideLoader, 250); resolve(); }
         },
         err => {
           console.warn('[main.js] stream error:', err);
-          if (!done) {
-            done = true;
-            setLoaderStatus('Using offline mode…');
-            setTimeout(() => { bootLocal(); hideLoader(); }, 400);
-            resolve();
-          }
+          if (!done) { done = true; setLoaderStatus('Using offline mode…'); setTimeout(() => { bootLocal(); hideLoader(); }, 400); resolve(); }
         }
       );
       setTimeout(() => {
-        if (!done) {
-          done = true;
-          setLoaderStatus('Slow connection — loading anyway…');
-          hideLoader();
-          resolve();
-        }
+        if (!done) { done = true; setLoaderStatus('Slow connection — loading anyway…'); hideLoader(); resolve(); }
       }, 6000);
     });
 
     setStatus();
-    console.log('[main.js] boot complete');
+    if (PIXLECT.user) {
+      await migrateUserChannels();
+      await ensurePrimaryChannel();
+    }
   } catch (e) {
     console.warn('[main.js] Firebase unavailable → local mode.', e);
     setLoaderStatus('Offline mode.');
@@ -327,7 +460,6 @@ async function boot() {
 }
 
 function bootLocal() {
-  console.log('[main.js] bootLocal()');
   state.mode = 'local';
   let raw = null;
   try { raw = JSON.parse(localStorage.getItem('pixeltube_db') || 'null'); } catch (_) {}
@@ -336,6 +468,7 @@ function bootLocal() {
   applyData(localDB);
   setStatus();
   hideLoader();
+  if (PIXLECT.user) ensurePrimaryChannel();
 }
 
 function persistLocal() {
@@ -347,11 +480,38 @@ function applyData(d) {
   state.videos    = d.videos    || {};
   state.channels  = d.channels  || {};
   state.playlists = d.playlists || {};
+  state.users     = d.users     || {};
   const u = (d.users && d.users[state.uid]) || {};
-  state.subs  = u.subs  || {};
-  state.likes = u.likes || {};
+  state.subs     = u.subs     || {};
+  state.likes    = u.likes    || {};
+  state.dislikes = u.dislikes || {};
+
+  const idx = u.channels || {};
+  const ids = Object.keys(idx);
+  const p = primaryChannelId();
+  if (p && state.channels[p] && !ids.includes(p)) ids.unshift(p);
+  state.myChannelIds = ids;
+
+  const storedActive = u.activeChannel;
+  if (storedActive && ids.includes(storedActive)) state.activeChannelId = storedActive;
+  else if (p && ids.includes(p)) state.activeChannelId = p;
+  else state.activeChannelId = ids[0] || null;
+
   renderSidebar();
   render();
+}
+
+async function migrateUserChannels() {
+  if (!PIXLECT.user) return;
+  const uid = state.uid;
+  const p = primaryChannelId();
+  if (!state.channels[p]) return;
+  const u = state.users[uid] || {};
+  const idx = u.channels || {};
+  if (idx[p]) return;
+  await addChannelToIndex(p);
+  if (!u.activeChannel) await setActiveChannel(p);
+  console.log('[main.js] migrated primary channel into users index');
 }
 
 function reloadUserScopedData() {
@@ -374,7 +534,6 @@ async function toggleSub(cid) {
   if (!cid) return;
   if (!PIXLECT.user) { toast('Sign in with PIXLECT to subscribe'); pixlectSignIn(); return; }
   const on = isSubbed(cid), delta = on ? -1 : 1;
-
   if (state.mode === 'firebase') {
     try {
       const p = `pixeltube/users/${state.uid}/subs/${cid}`;
@@ -382,7 +541,7 @@ async function toggleSub(cid) {
       await runTransaction(ref(db, `pixeltube/channels/${cid}/subs`),
         n => Math.max(0, (Number(n) || 0) + delta));
       toast(on ? 'Unsubscribed' : 'Subscribed 🔔');
-    } catch (e) { console.warn(e); toast('Could not update subscription'); }
+    } catch (e) { toast('Could not update subscription'); }
   } else {
     const u = localDB.users[state.uid] || (localDB.users[state.uid] = {});
     const s = u.subs || (u.subs = {});
@@ -391,7 +550,6 @@ async function toggleSub(cid) {
     if (ch) ch.subs = Math.max(0, (Number(ch.subs) || 0) + delta);
     persistLocal();
     applyData(localDB);
-    toast(on ? 'Unsubscribed' : 'Subscribed 🔔');
   }
 }
 
@@ -399,20 +557,65 @@ async function toggleLike(vid) {
   if (!vid) return;
   if (!PIXLECT.user) { toast('Sign in with PIXLECT to like'); pixlectSignIn(); return; }
   const on = isLiked(vid), delta = on ? -1 : 1;
+  const wasDisliked = isDisliked(vid);
 
   if (state.mode === 'firebase') {
     try {
-      const p = `pixeltube/users/${state.uid}/likes/${vid}`;
-      if (on) await remove(ref(db, p)); else await set(ref(db, p), true);
+      const pLike    = `pixeltube/users/${state.uid}/likes/${vid}`;
+      const pDislike = `pixeltube/users/${state.uid}/dislikes/${vid}`;
+      if (on) await remove(ref(db, pLike)); else await set(ref(db, pLike), true);
       await runTransaction(ref(db, `pixeltube/videos/${vid}/likes`),
         n => Math.max(0, (Number(n) || 0) + delta));
-    } catch (e) { console.warn(e); toast('Could not update like'); }
+      if (wasDisliked && !on) {
+        await remove(ref(db, pDislike));
+        await runTransaction(ref(db, `pixeltube/videos/${vid}/dislikes`),
+          n => Math.max(0, (Number(n) || 0) - 1));
+      }
+    } catch (e) { toast('Could not update like'); }
   } else {
     const u = localDB.users[state.uid] || (localDB.users[state.uid] = {});
     const l = u.likes || (u.likes = {});
+    const d = u.dislikes || (u.dislikes = {});
     if (on) delete l[vid]; else l[vid] = true;
     const v = localDB.videos[vid];
-    if (v) v.likes = Math.max(0, (Number(v.likes) || 0) + delta);
+    if (v) {
+      v.likes = Math.max(0, (Number(v.likes) || 0) + delta);
+      if (wasDisliked && !on) { delete d[vid]; v.dislikes = Math.max(0, (Number(v.dislikes) || 0) - 1); }
+    }
+    persistLocal();
+    applyData(localDB);
+  }
+}
+
+async function toggleDislike(vid) {
+  if (!vid) return;
+  if (!PIXLECT.user) { toast('Sign in with PIXLECT to dislike'); pixlectSignIn(); return; }
+  const on = isDisliked(vid), delta = on ? -1 : 1;
+  const wasLiked = isLiked(vid);
+
+  if (state.mode === 'firebase') {
+    try {
+      const pLike    = `pixeltube/users/${state.uid}/likes/${vid}`;
+      const pDislike = `pixeltube/users/${state.uid}/dislikes/${vid}`;
+      if (on) await remove(ref(db, pDislike)); else await set(ref(db, pDislike), true);
+      await runTransaction(ref(db, `pixeltube/videos/${vid}/dislikes`),
+        n => Math.max(0, (Number(n) || 0) + delta));
+      if (wasLiked && !on) {
+        await remove(ref(db, pLike));
+        await runTransaction(ref(db, `pixeltube/videos/${vid}/likes`),
+          n => Math.max(0, (Number(n) || 0) - 1));
+      }
+    } catch (e) { toast('Could not update dislike'); }
+  } else {
+    const u = localDB.users[state.uid] || (localDB.users[state.uid] = {});
+    const l = u.likes || (u.likes = {});
+    const d = u.dislikes || (u.dislikes = {});
+    if (on) delete d[vid]; else d[vid] = true;
+    const v = localDB.videos[vid];
+    if (v) {
+      v.dislikes = Math.max(0, (Number(v.dislikes) || 0) + delta);
+      if (wasLiked && !on) { delete l[vid]; v.likes = Math.max(0, (Number(v.likes) || 0) - 1); }
+    }
     persistLocal();
     applyData(localDB);
   }
@@ -421,25 +624,64 @@ async function toggleLike(vid) {
 async function registerView(vid) {
   if (!vid || state.viewedThisSession.has(vid)) return;
   state.viewedThisSession.add(vid);
-
   if (state.mode === 'firebase' && db) {
     try { await runTransaction(ref(db, `pixeltube/videos/${vid}/views`), n => (Number(n) || 0) + 1); }
-    catch (e) { console.warn('view increment failed', e); }
+    catch (e) { /* ignore */ }
   } else if (state.mode === 'local' && localDB) {
     const v = localDB.videos[vid];
     if (v) { v.views = (Number(v.views) || 0) + 1; persistLocal(); applyData(localDB); }
   }
 }
 
+/* ============================================================
+   SHORTS FAILOVER
+   ============================================================ */
+async function writeShortSrc(vid, dataUrl) {
+  if (db) {
+    try {
+      await set(ref(db, `pixeltube/videoSrc/${vid}`), dataUrl);
+      return 'primary';
+    } catch (e) {
+      console.warn('[main.js] Primary Short write failed:', e?.message || e);
+      showStorageAlert('Primary Firebase is full. New Shorts are being saved to emergency storage. Please review your uploads and delete what you no longer need.');
+    }
+  }
+  if (dbBackup) {
+    try {
+      await set(ref(dbBackup, `pixeltube/videoSrc/${vid}`), dataUrl);
+      return 'backup';
+    } catch (e) { console.error('[main.js] Backup Short write also failed:', e?.message || e); }
+  }
+  throw new Error('Both Firebase backends rejected the write');
+}
+
 async function fetchVideoSrc(vid) {
   if (srcCache[vid] !== undefined) return srcCache[vid];
-  if (state.mode === 'firebase' && db) {
-    try { srcCache[vid] = (await get(ref(db, `pixeltube/videoSrc/${vid}`))).val() || ''; }
-    catch (e) { srcCache[vid] = ''; }
+  const v = state.videos[vid];
+  const hint = v?.srcBackend;
+
+  async function tryPrimary() {
+    if (!db) return '';
+    try { return (await get(ref(db, `pixeltube/videoSrc/${vid}`))).val() || ''; }
+    catch (_) { return ''; }
+  }
+  async function tryBackup() {
+    if (!dbBackup) return '';
+    try { return (await get(ref(dbBackup, `pixeltube/videoSrc/${vid}`))).val() || ''; }
+    catch (_) { return ''; }
+  }
+
+  let src = '';
+  if (state.mode === 'firebase') {
+    if (hint === 'backup')       src = await tryBackup() || await tryPrimary();
+    else if (hint === 'primary') src = await tryPrimary() || await tryBackup();
+    else                          src = await tryPrimary() || await tryBackup();
   } else if (localDB) {
-    srcCache[vid] = (localDB.videoSrc && localDB.videoSrc[vid]) || '';
-  } else srcCache[vid] = '';
-  return srcCache[vid];
+    src = (localDB.videoSrc && localDB.videoSrc[vid]) || '';
+  }
+
+  srcCache[vid] = src;
+  return src;
 }
 
 async function hydrateVideosInView(root) {
@@ -462,61 +704,108 @@ async function hydrateVideosInView(root) {
 }
 
 /* ============================================================
-   CREATE VIDEO — Longs → Supabase, Shorts → Firebase
+   LONGS FAILOVER
+   ============================================================ */
+async function uploadLongToSupabase(file, vid) {
+  const ext = (file.name.split('.').pop() || 'mp4').toLowerCase();
+  const path = `${PIXLECT.user.uid}/${vid}.${ext}`;
+
+  if (supaPrimary) {
+    try {
+      const { error } = await supaPrimary.storage
+        .from(SUPABASE_BUCKET)
+        .upload(path, file, {
+          cacheControl: '3600',
+          upsert: false,
+          contentType: file.type || 'video/mp4'
+        });
+      if (!error) {
+        const { data: pub } = supaPrimary.storage.from(SUPABASE_BUCKET).getPublicUrl(path);
+        if (pub?.publicUrl) return { url: pub.publicUrl, backend: 'url' };
+      } else {
+        console.warn('[main.js] Primary Supabase upload error:', error.message);
+      }
+    } catch (e) {
+      console.warn('[main.js] Primary Supabase threw:', e?.message || e);
+    }
+  }
+
+  if (supaBackup) {
+    showStorageAlert('Primary video storage is full. New Longs are being saved to emergency storage. Please review your uploads and delete what you no longer need.');
+    try {
+      const { error } = await supaBackup.storage
+        .from(SUPABASE_BUCKET)
+        .upload(path, file, {
+          cacheControl: '3600',
+          upsert: false,
+          contentType: file.type || 'video/mp4'
+        });
+      if (error) {
+        console.error('[main.js] Backup Supabase upload FAILED:', error.message);
+        throw new Error(error.message);
+      }
+      const { data: pub } = supaBackup.storage.from(SUPABASE_BUCKET).getPublicUrl(path);
+      if (!pub?.publicUrl) throw new Error('Could not get public URL from backup');
+      return { url: pub.publicUrl, backend: 'url-backup' };
+    } catch (e) {
+      throw new Error('Both Supabase backends rejected the upload: ' + (e?.message || e));
+    }
+  }
+
+  throw new Error('No Supabase backend available');
+}
+
+/* ============================================================
+   CREATE VIDEO — uses the ACTIVE channel
    ============================================================ */
 async function createVideo(payload) {
   if (!PIXLECT.user) { toast('Sign in to upload'); pixlectSignIn(); return null; }
-  if (!hasChannel()) { promptCreateChannel(CTX); return null; }
+  const ch = myChannel();
+  if (!ch) { promptCreateChannel(CTX); return null; }
 
-  const cid = myChannelId();
+  const cid = ch.id;
   const vid = 'v_' + Math.random().toString(36).slice(2, 10);
   const isLong = payload.kind !== 'mini';
 
   let storedSrc = payload.src;
+  let srcBackend = 'url';
 
   if (isLong && payload.file) {
-    if (!supa) { toast('Supabase client not ready'); return null; }
-    const ext = (payload.file.name.split('.').pop() || 'mp4').toLowerCase();
-    const path = `${PIXLECT.user.uid}/${vid}.${ext}`;
-
-    console.log('[main.js] Supabase upload →', path, '(' + fmtBytes(payload.file.size) + ')');
-
-    const { data, error } = await supa.storage
-      .from(SUPABASE_BUCKET)
-      .upload(path, payload.file, {
-        cacheControl: '3600',
-        upsert: false,
-        contentType: payload.file.type || 'video/mp4'
-      });
-
-    if (error) {
-      console.error('[main.js] Supabase upload FAILED', error);
-      toast('Upload failed: ' + error.message);
+    const result = await uploadLongToSupabase(payload.file, vid);
+    storedSrc = result.url;
+    srcBackend = result.backend;
+  } else if (!isLong && payload.src) {
+    try {
+      srcBackend = await writeShortSrc(vid, payload.src);
+    } catch (e) {
+      toast('Could not store the Short: ' + e.message);
       return null;
     }
-
-    const { data: pub } = supa.storage.from(SUPABASE_BUCKET).getPublicUrl(path);
-    storedSrc = pub?.publicUrl || '';
-    console.log('[main.js] Supabase URL:', storedSrc);
-
-    if (!storedSrc) { toast('Could not get public URL'); return null; }
   }
 
   const meta = {
-    id: vid, title: payload.title, channelId: cid, kind: payload.kind,
-    thumb: payload.thumb || '', dur: payload.dur || '0:00',
-    views: 0, likes: 0, desc: payload.desc || '',
-    createdAt: Date.now(), createdBy: PIXLECT.user.uid
+    id: vid,
+    title: payload.title,
+    channelId: cid,
+    kind: payload.kind,
+    thumb: payload.thumb || '',
+    dur: payload.dur || '0:00',
+    views: 0,
+    likes: 0,
+    dislikes: 0,
+    desc: payload.desc || '',
+    createdAt: Date.now(),
+    createdBy: PIXLECT.user.uid,
+    srcBackend
   };
 
   if (state.mode === 'firebase') {
     try {
       await set(ref(db, `pixeltube/videos/${vid}`), meta);
-      await set(ref(db, `pixeltube/videoSrc/${vid}`), storedSrc);
-      srcCache[vid] = storedSrc;
+      if (isLong) await set(ref(db, `pixeltube/videoSrc/${vid}`), storedSrc);
+      srcCache[vid] = isLong ? storedSrc : payload.src;
       return vid;
     } catch (e) {
-      console.warn('createVideo failed', e);
       toast('Publish failed: ' + (e?.message || e));
       try { await remove(ref(db, `pixeltube/videos/${vid}`)); } catch (_) {}
       return null;
@@ -533,11 +822,16 @@ async function createVideo(payload) {
 }
 
 async function deleteVideo(vid) {
+  const v = state.videos[vid];
+  if (!v) return;
+  const isMine = PIXLECT.user && v.createdBy === PIXLECT.user.uid;
+  if (!isMine && !isAdmin()) { toast('You don\'t have permission to delete this'); return; }
   if (state.mode === 'firebase' && db) {
     try {
       await remove(ref(db, `pixeltube/videos/${vid}`));
-      await remove(ref(db, `pixeltube/videoSrc/${vid}`));
-    } catch (e) { console.warn(e); toast('Could not delete'); }
+      try { await remove(ref(db, `pixeltube/videoSrc/${vid}`)); } catch (_) {}
+      if (dbBackup) { try { await remove(ref(dbBackup, `pixeltube/videoSrc/${vid}`)); } catch (_) {} }
+    } catch (e) { toast('Could not delete'); }
   } else if (localDB) {
     delete localDB.videos[vid];
     if (localDB.videoSrc) delete localDB.videoSrc[vid];
@@ -560,7 +854,7 @@ async function addComment(vid, text) {
   };
   if (state.mode === 'firebase') {
     try { await set(ref(db, `pixeltube/comments/${vid}/${cid}`), comment); }
-    catch (e) { console.warn(e); toast('Could not post comment'); }
+    catch (e) { toast('Could not post comment'); }
   } else {
     const c = localDB.comments || (localDB.comments = {});
     const v = c[vid] || (c[vid] = {});
@@ -587,10 +881,7 @@ function renderComments(vid, map) {
   const target = document.getElementById('commentList');
   if (!target) return;
   const list = Object.values(map).sort((a, b) => (b.ts || 0) - (a.ts || 0));
-  if (!list.length) {
-    target.innerHTML = `<div class="no-comments">No comments yet. Be the first!</div>`;
-    return;
-  }
+  if (!list.length) { target.innerHTML = `<div class="no-comments">No comments yet. Be the first!</div>`; return; }
   target.innerHTML = list.map(c => `
     <div class="comment">
       ${c.icon?.avatar
@@ -618,21 +909,17 @@ async function createPlaylist(name) {
   if (!PIXLECT.user) { toast('Sign in to create playlists'); pixlectSignIn(); return null; }
   const pid = 'pl_' + Math.random().toString(36).slice(2, 10);
   const pl = {
-    id: pid,
-    name: name.trim().slice(0, 80) || 'Untitled playlist',
-    ownerUid: PIXLECT.user.uid,
-    ownerName: PIXLECT.user.username,
-    videoIds: {},
-    createdAt: Date.now()
+    id: pid, name: name.trim().slice(0, 80) || 'Untitled playlist',
+    ownerUid: PIXLECT.user.uid, ownerName: PIXLECT.user.username,
+    videoIds: {}, createdAt: Date.now()
   };
   if (state.mode === 'firebase' && db) {
     try { await set(ref(db, `pixeltube/playlists/${pid}`), pl); return pid; }
-    catch (e) { console.warn(e); toast('Could not create playlist'); return null; }
+    catch (e) { toast('Could not create playlist'); return null; }
   } else if (localDB) {
     localDB.playlists = localDB.playlists || {};
     localDB.playlists[pid] = pl;
-    persistLocal();
-    applyData(localDB);
+    persistLocal(); applyData(localDB);
     return pid;
   }
   return null;
@@ -640,33 +927,29 @@ async function createPlaylist(name) {
 
 async function deletePlaylist(pid) {
   if (state.mode === 'firebase' && db) {
-    try { await remove(ref(db, `pixeltube/playlists/${pid}`)); } catch (e) { console.warn(e); }
+    try { await remove(ref(db, `pixeltube/playlists/${pid}`)); } catch (_) {}
   } else if (localDB) {
-    delete localDB.playlists[pid];
-    persistLocal();
-    applyData(localDB);
+    delete localDB.playlists[pid]; persistLocal(); applyData(localDB);
   }
 }
 
 async function addToPlaylist(pid, vid) {
   if (state.mode === 'firebase' && db) {
     try { await set(ref(db, `pixeltube/playlists/${pid}/videoIds/${vid}`), true); }
-    catch (e) { console.warn(e); toast('Could not add to playlist'); }
+    catch (e) { toast('Could not add to playlist'); }
   } else if (localDB) {
     localDB.playlists[pid].videoIds = localDB.playlists[pid].videoIds || {};
     localDB.playlists[pid].videoIds[vid] = true;
-    persistLocal();
-    applyData(localDB);
+    persistLocal(); applyData(localDB);
   }
 }
 
 async function removeFromPlaylist(pid, vid) {
   if (state.mode === 'firebase' && db) {
-    try { await remove(ref(db, `pixeltube/playlists/${pid}/videoIds/${vid}`)); } catch (e) { console.warn(e); }
+    try { await remove(ref(db, `pixeltube/playlists/${pid}/videoIds/${vid}`)); } catch (_) {}
   } else if (localDB) {
     if (localDB.playlists[pid].videoIds) delete localDB.playlists[pid].videoIds[vid];
-    persistLocal();
-    applyData(localDB);
+    persistLocal(); applyData(localDB);
   }
 }
 
@@ -680,26 +963,27 @@ function playlistVideos(pid) {
    CTX
    ============================================================ */
 const CTX = {
-  state,
-  PIXLECT,
+  state, PIXLECT, isAdmin,
   get db()      { return db; },
   get localDB() { return localDB; },
-  get supa()    { return supa; },
+  get supa()    { return supaPrimary; },
   SUPABASE_BUCKET,
 
-  subsOf, likesOf, viewsOf, isSubbed, isLiked, chanOf,
+  subsOf, likesOf, dislikesOf, viewsOf, isSubbed, isLiked, isDisliked, chanOf,
   videosSorted, minisSorted, longsSorted,
 
-  myChannelId, myChannel, hasChannel, createOrUpdateChannel,
+  myChannelId, myChannel, hasChannel, myChannels, primaryChannelId,
+  createExtraChannel, deleteChannel, setActiveChannel, saveChannel, addChannelToIndex,
+  extraChannelCount, canCreateExtra, MAX_EXTRA_CHANNELS,
 
-  toggleSub, toggleLike, registerView, createVideo, deleteVideo,
+  toggleSub, toggleLike, toggleDislike, registerView, createVideo, deleteVideo,
   addComment,
   createPlaylist, deletePlaylist, addToPlaylist, removeFromPlaylist,
   playlistsOfUser, playlistVideos,
 
   pixlectSignIn, toast, openModal, closeModal,
   renderTopbar, renderSidebar, render,
-  persistLocal, applyData, remove, ref,
+  persistLocal, applyData, remove, ref, set,
 
   get route() { return state.route; }
 };
@@ -707,7 +991,11 @@ const CTX = {
 window.__CTX = CTX;
 window.__PIXLECT = PIXLECT;
 window.__state = state;
+window.__isAdmin = isAdmin;
 
+/* ============================================================
+   CARD BUILDERS
+   ============================================================ */
 function cardHTML(v) {
   const c = chanOf(v.id);
   return `
@@ -761,7 +1049,6 @@ CTX.emptyState = emptyState;
    TOPBAR
    ============================================================ */
 function renderTopbar() {
-  console.log('[main.js] renderTopbar() — user?', !!PIXLECT.user);
   const slot = $('#authSlot');
   if (!slot) return;
 
@@ -784,19 +1071,53 @@ function renderTopbar() {
       ? `<span class="pic" style="background:${esc(ch.color)}">${esc(initial(ch.name))}</span>`
       : `<span class="pic" style="background:${esc(u.icon?.bg || '#38bdf8')}">${esc(u.icon?.emoji || '👤')}</span>`;
 
+  const channels = myChannels();
+  const hasMulti = channels.length > 1;
+
+  const channelListHTML = channels.length > 1 ? `
+    <div class="sep"></div>
+    <div style="padding:6px 12px 4px;font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);font-weight:800">
+      Your channels
+    </div>
+    ${channels.map(c => `
+      <button data-action="switch-channel" data-cid="${esc(c.id)}" type="button"
+              style="display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:9px 12px;border-radius:9px;font-size:13px;font-weight:600;color:var(--text);${c.id === ch?.id ? 'background:var(--surface2)' : ''}">
+        ${c.avatar
+          ? `<span style="width:22px;height:22px;border-radius:50%;overflow:hidden;flex:none"><img src="${esc(c.avatar)}" alt="" style="width:100%;height:100%;object-fit:cover"></span>`
+          : `<span style="width:22px;height:22px;border-radius:50%;background:${esc(c.color)};display:grid;place-items:center;font-size:11px;color:#0a0e1a;font-weight:900;flex:none">${esc(initial(c.name))}</span>`}
+        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.name)}</span>
+        ${c.id === ch?.id ? '<span style="color:var(--accent);font-size:11px;font-weight:800">✓</span>' : ''}
+      </button>
+    `).join('')}
+    ${canCreateExtra()
+      ? `<button id="menuAddChannel" type="button" style="display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:9px 12px;border-radius:9px;font-size:13px;font-weight:600;color:var(--accent)">
+           <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6z"/></svg>
+           Add a channel (${extraChannelCount()}/${MAX_EXTRA_CHANNELS})
+         </button>`
+      : `<div style="padding:9px 12px;font-size:12px;color:var(--muted)">
+           ${MAX_EXTRA_CHANNELS} extra channels — limit reached.
+         </div>`}
+  ` : '';
+
   const channelBlock = ch
     ? `<button id="menuEditChannel" type="button">
          <svg viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75z"/></svg>
-         Edit PIXELChannel
+         Edit "${esc(ch.name)}"
        </button>
        <a href="#/channel/${esc(ch.id)}" style="display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:10px 12px;border-radius:9px;font-size:13.5px;font-weight:600" id="menuViewChannel">
          <svg viewBox="0 0 24 24" width="17" height="17" fill="currentColor" opacity="0.8"><path d="M12 5c-7 0-10 7-10 7s3 7 10 7 10-7 10-7-3-7-10-7zm0 11a4 4 0 1 1 0-8 4 4 0 0 1 0 8z"/></svg>
-         View my channel
+         View this channel
        </a>`
     : `<button id="menuCreateChannel" type="button">
          <svg viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6z"/></svg>
          Create PIXELChannel
        </button>`;
+
+  const adminBadge = isAdmin() ? `
+    <div style="display:flex;align-items:center;gap:8px;padding:10px 12px;font-size:11.5px;color:var(--warn);font-weight:800;letter-spacing:.6px">
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor"><path d="M12 1l3 6 6 1-4.5 4.5L18 19l-6-3-6 3 1.5-6.5L3 8l6-1z"/></svg>
+      ADMIN
+    </div>` : '';
 
   slot.innerHTML = `
     <button class="user-chip" id="userChip" type="button">
@@ -808,10 +1129,12 @@ function renderTopbar() {
         ${avHTML}
         <div style="min-width:0">
           <strong>${esc(displayName)}</strong>
-          <small>@${esc(u.username)} · ${ch ? 'PIXELChannel' : 'No channel'}</small>
+          <small>@${esc(u.username)}${hasMulti ? ` · ${channels.length} channels` : (ch ? ' · PIXELChannel' : ' · No channel')}${isAdmin() ? ' · ADMIN' : ''}</small>
         </div>
       </div>
       ${channelBlock}
+      ${channelListHTML}
+      ${adminBadge}
       <div class="sep"></div>
       <button id="menuSignOut" type="button">
         <svg viewBox="0 0 24 24"><path d="M16 13v-2H7V8l-5 4 5 4v-3zM20 3h-8v2h8v14h-8v2h8a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2z"/></svg>
@@ -832,10 +1155,135 @@ function renderTopbar() {
   const mv = document.getElementById('menuViewChannel');
   if (mv) mv.onclick = () => menu.classList.remove('open');
 
+  const ma = document.getElementById('menuAddChannel');
+  if (ma) ma.onclick = () => { menu.classList.remove('open'); promptCreateExtraChannel(); };
+
   const so = $('#menuSignOut');
   if (so) so.onclick = () => { menu.classList.remove('open'); pixlectSignOut(); };
 
   document.addEventListener('click', () => menu.classList.remove('open'));
+}
+
+/* ============================================================
+   CREATE EXTRA CHANNEL MODAL
+   ============================================================ */
+function promptCreateExtraChannel() {
+  if (!PIXLECT.user) { pixlectSignIn(); return; }
+  if (!canCreateExtra()) {
+    toast(`You've reached the limit of ${MAX_EXTRA_CHANNELS} extra channels.`);
+    return;
+  }
+
+  openModal(`
+    <button class="close" type="button" onclick="document.getElementById('modalRoot').innerHTML=''">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M19 6.4L17.6 5 12 10.6 6.4 5 5 6.4 10.6 12 5 17.6 6.4 19 12 13.4 17.6 19 19 17.6 13.4 12z"/></svg>
+    </button>
+    <h2>Add a channel</h2>
+    <p class="lede">You've made <b>${extraChannelCount()}</b> of ${MAX_EXTRA_CHANNELS} extra channels. Give this one a name, handle, and picture.</p>
+
+    <div class="avatar-preview">
+      <div class="av" id="chAvPreview">N</div>
+      <div class="meta">
+        <strong>New channel</strong>
+        <small>Extra channels are separate from your primary</small>
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="chName">Channel name *</label>
+      <input id="chName" type="text" maxlength="60" placeholder="e.g. Pixel Gaming" />
+    </div>
+    <div class="field">
+      <label for="chHandle">Handle</label>
+      <input id="chHandle" type="text" maxlength="30" placeholder="@pixelgaming" />
+    </div>
+    <div class="field">
+      <label>Profile picture</label>
+      <div class="source-tabs">
+        <button type="button" class="source-tab active" data-chav="auto">✨ Auto</button>
+        <button type="button" class="source-tab" data-chav="upload">🖼️ Upload</button>
+        <button type="button" class="source-tab" data-chav="url">🔗 URL</button>
+      </div>
+      <div id="chAvPaneAuto"><div class="info-note">A colored circle with the first letter will be used.</div></div>
+      <div id="chAvPaneUpload" style="display:none">
+        <div class="dropzone" id="chAvDrop">
+          <input type="file" id="chAvFile" accept="image/*" />
+          <div class="dz-icon">🖼️</div>
+          <div class="dz-title">Click to choose an image</div>
+          <div class="dz-sub">JPG, PNG, WebP</div>
+        </div>
+      </div>
+      <div id="chAvPaneUrl" style="display:none">
+        <input id="chAvUrl" type="url" placeholder="https://example.com/avatar.jpg" />
+      </div>
+    </div>
+
+    <div class="form-actions">
+      <button type="button" class="btn-secondary" onclick="document.getElementById('modalRoot').innerHTML=''">Cancel</button>
+      <button type="button" class="btn-primary" id="chCreateBtn">Create channel</button>
+    </div>
+  `);
+
+  let chAvMode = 'auto';
+  let chAvData = '';
+
+  const avPreview = document.getElementById('chAvPreview');
+  const nameInput = document.getElementById('chName');
+  const handleInput = document.getElementById('chHandle');
+
+  nameInput.addEventListener('input', () => {
+    if (!handleInput.dataset.touched) {
+      const slug = nameInput.value.trim().toLowerCase().replace(/\s+/g, '').replace(/[^a-z0-9._-]/g, '');
+      handleInput.value = slug ? ('@' + slug) : '';
+    }
+  });
+  handleInput.addEventListener('input', () => { handleInput.dataset.touched = '1'; });
+
+  const updateAvPreview = () => {
+    if (chAvMode === 'auto' || !chAvData) {
+      avPreview.innerHTML = esc(initial(nameInput.value || 'N'));
+      avPreview.style.background = 'linear-gradient(135deg,var(--accent),var(--accent2))';
+    } else {
+      avPreview.innerHTML = `<img src="${esc(chAvData)}" alt="">`;
+    }
+  };
+
+  document.querySelectorAll('[data-chav]').forEach(t => t.addEventListener('click', () => {
+    document.querySelectorAll('[data-chav]').forEach(x => x.classList.remove('active'));
+    t.classList.add('active');
+    chAvMode = t.dataset.chav;
+    document.getElementById('chAvPaneAuto').style.display   = chAvMode === 'auto'   ? '' : 'none';
+    document.getElementById('chAvPaneUpload').style.display = chAvMode === 'upload' ? '' : 'none';
+    document.getElementById('chAvPaneUrl').style.display    = chAvMode === 'url'    ? '' : 'none';
+    if (chAvMode === 'auto') chAvData = '';
+    updateAvPreview();
+  }));
+
+  const drop = document.getElementById('chAvDrop');
+  const file = document.getElementById('chAvFile');
+  if (drop && file) {
+    drop.addEventListener('click', () => file.click());
+    file.addEventListener('change', async (e) => {
+      const f = e.target.files[0];
+      if (!f) return;
+      chAvData = await resizeImageFile(f, 240);
+      updateAvPreview();
+    });
+  }
+  const url = document.getElementById('chAvUrl');
+  if (url) url.addEventListener('input', (e) => {
+    chAvData = e.target.value.trim();
+    updateAvPreview();
+  });
+
+  document.getElementById('chCreateBtn').onclick = async () => {
+    const name = nameInput.value.trim();
+    const handle = handleInput.value.trim() || ('@' + name.toLowerCase().replace(/\s+/g, ''));
+    if (!name) { toast('Channel name is required'); return; }
+    const avatar = chAvMode === 'auto' ? '' : chAvData;
+    const cid = await createExtraChannel({ name, handle, avatar });
+    if (cid) closeModal();
+  };
 }
 
 /* ============================================================
@@ -855,20 +1303,30 @@ function renderSidebar() {
   const likeCount = Object.keys(state.likes).length;
   const miniCount = minisSorted().length;
   const myPls = playlistsOfUser();
+  const channels = myChannels();
+  const active = myChannel();
 
   const userBlock = PIXLECT.user ? `
     <div class="side-user">
-      ${myChannel()
-        ? (myChannel().avatar
-            ? `<span class="pic"><img src="${esc(myChannel().avatar)}" alt=""></span>`
-            : `<span class="pic" style="background:${esc(myChannel().color)}">${esc(initial(myChannel().name))}</span>`)
+      ${active
+        ? (active.avatar
+            ? `<span class="pic"><img src="${esc(active.avatar)}" alt=""></span>`
+            : `<span class="pic" style="background:${esc(active.color)}">${esc(initial(active.name))}</span>`)
         : `<span class="pic" style="background:${esc(PIXLECT.user.icon?.bg || '#38bdf8')}">${esc(PIXLECT.user.icon?.emoji || '👤')}</span>`}
       <div class="t">
-        <strong>${esc(myChannel() ? myChannel().name : PIXLECT.user.username)}</strong>
-        <small>${myChannel() ? 'PIXELChannel' : 'No channel'}</small>
+        <strong>${esc(active ? active.name : PIXLECT.user.username)}</strong>
+        <small>${active ? 'PIXELChannel' : 'No channel'}${isAdmin() ? ' · ADMIN' : ''}</small>
       </div>
     </div>
-    ${!myChannel() ? `<button class="btn-primary" style="margin:8px 4px 0;width:calc(100% - 8px)" id="sideCreateChannel" type="button">Create PIXELChannel</button>` : ''}
+    ${channels.length > 1 ? `
+      <button class="btn-secondary" style="margin:8px 4px 0;width:calc(100% - 8px);font-size:12.5px;padding:8px 12px" id="sideSwitchChannel" type="button">
+        🔄 Switch channel (${channels.length})
+      </button>` : ''}
+    ${!active && canCreateExtra() ? `<button class="btn-primary" style="margin:8px 4px 0;width:calc(100% - 8px)" id="sideCreateChannel" type="button">Create PIXELChannel</button>` : ''}
+    ${active && canCreateExtra() ? `
+      <button class="btn-secondary" style="margin:8px 4px 0;width:calc(100% - 8px);font-size:12.5px;padding:8px 12px" id="sideAddChannel" type="button">
+        + Add channel (${extraChannelCount()}/${MAX_EXTRA_CHANNELS})
+      </button>` : ''}
   ` : `<div class="side-note">Not signed in.<br>Sign in to upload, like, and comment.</div>`;
 
   const sb = $('#sidebar');
@@ -905,6 +1363,53 @@ function renderSidebar() {
 
   const sc = document.getElementById('sideCreateChannel');
   if (sc) sc.onclick = () => promptCreateChannel(CTX);
+
+  const sa = document.getElementById('sideAddChannel');
+  if (sa) sa.onclick = () => promptCreateExtraChannel();
+
+  const ss = document.getElementById('sideSwitchChannel');
+  if (ss) ss.onclick = () => promptSwitchChannel();
+}
+
+/* ============================================================
+   SWITCH CHANNEL MODAL
+   ============================================================ */
+function promptSwitchChannel() {
+  const channels = myChannels();
+  if (channels.length < 2) return;
+
+  openModal(`
+    <button class="close" type="button" onclick="document.getElementById('modalRoot').innerHTML=''">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M19 6.4L17.6 5 12 10.6 6.4 5 5 6.4 10.6 12 5 17.6 6.4 19 12 13.4 17.6 19 19 17.6 13.4 12z"/></svg>
+    </button>
+    <h2>Switch channel</h2>
+    <p class="lede">Pick which channel you're uploading and managing as.</p>
+    <div style="display:flex;flex-direction:column;gap:6px">
+      ${channels.map(c => {
+        const isActive = c.id === state.activeChannelId;
+        return `<button data-action="switch-channel" data-cid="${esc(c.id)}" type="button"
+                style="display:flex;align-items:center;gap:12px;width:100%;text-align:left;padding:12px;border-radius:12px;border:1px solid ${isActive ? 'var(--accent)' : 'var(--line)'};background:${isActive ? 'var(--surface2)' : 'var(--surface)'};transition:.15s;color:var(--text)">
+          ${c.avatar
+            ? `<span style="width:38px;height:38px;border-radius:50%;overflow:hidden;flex:none"><img src="${esc(c.avatar)}" alt="" style="width:100%;height:100%;object-fit:cover"></span>`
+            : `<span style="width:38px;height:38px;border-radius:50%;background:${esc(c.color)};display:grid;place-items:center;font-weight:900;color:#0a0e1a;font-size:16px;flex:none">${esc(initial(c.name))}</span>`}
+          <div style="flex:1;min-width:0">
+            <strong style="display:block;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.name)}</strong>
+            <small style="color:var(--muted);font-size:11.5px">${esc(c.handle || '')} · ${fmt(subsOf(c.id))} subs</small>
+          </div>
+          ${isActive ? '<span style="color:var(--accent);font-weight:800;font-size:12px">ACTIVE</span>' : ''}
+        </button>`;
+      }).join('')}
+    </div>
+    <div class="form-actions" style="justify-content:flex-start;gap:10px">
+      ${canCreateExtra()
+        ? `<button type="button" class="btn-primary" id="chSwitchAdd" style="margin-right:auto">+ New channel</button>`
+        : ''}
+      <button type="button" class="btn-secondary" onclick="document.getElementById('modalRoot').innerHTML=''">Close</button>
+    </div>
+  `);
+
+  const addBtn = document.getElementById('chSwitchAdd');
+  if (addBtn) addBtn.onclick = () => { closeModal(); promptCreateExtraChannel(); };
 }
 
 /* ============================================================
@@ -957,6 +1462,11 @@ function syncDynamic() {
       el.classList.toggle('active', on);
       const lbl = el.querySelector('.lbl');
       if (lbl) lbl.textContent = fmt(likesOf(el.dataset.video));
+    } else if (t === 'dislike') {
+      const on = isDisliked(el.dataset.video);
+      el.classList.toggle('active', on);
+      const lbl = el.querySelector('.lbl');
+      if (lbl) lbl.textContent = fmt(dislikesOf(el.dataset.video));
     } else if (t === 'sub') {
       const on = isSubbed(el.dataset.channel);
       el.classList.toggle('subbed', on);
@@ -979,17 +1489,27 @@ function viewCreate() {
       'You need a PIXLECT account to publish videos on PIXELTube.',
       `<button class="btn-primary" id="createSignIn" type="button">Sign in with PIXLECT</button>`);
   }
-  if (!hasChannel()) {
+  const channels = myChannels();
+  if (!channels.length) {
     return emptyState('🎬', 'Create your PIXELChannel first',
       'Before uploading, you need a PIXELChannel. It takes ten seconds.',
       `<button class="btn-primary" id="createChannelBtn" type="button">Create PIXELChannel</button>`);
   }
   const ch = myChannel();
+  const channelOptions = channels.map(c =>
+    `<option value="${esc(c.id)}"${c.id === ch.id ? ' selected' : ''}>${esc(c.name)}</option>`
+  ).join('');
+
   return `
     <div class="form-wrap">
       <h1>Upload to PIXELTube</h1>
-      <p class="lede">Publish to <b>${esc(ch.name)}</b>. <b>Longs</b> (up to 8 min / 50 MB) go to Supabase Storage. <b>Shorts / Minis</b> (up to 1 min / 8 MB) go to Firebase.</p>
+      <p class="lede">Publishing to <b>${esc(ch.name)}</b>. Longs go to Supabase, Shorts to Firebase.</p>
       <form id="createForm" autocomplete="off">
+        ${channels.length > 1 ? `
+        <div class="field">
+          <label for="f-channel">Publish as *</label>
+          <select id="f-channel">${channelOptions}</select>
+        </div>` : ''}
         <div class="field">
           <label for="f-title">Title *</label>
           <input id="f-title" type="text" maxlength="120" required placeholder="What's your video called?" />
@@ -1093,6 +1613,8 @@ function setupCreateForm() {
 
   const form = document.getElementById('createForm');
   if (!form) return;
+
+  const channelSelect = document.getElementById('f-channel');
 
   const tabs = $$('.source-tab[data-source]');
   const paneUpload = document.getElementById('paneUpload');
@@ -1308,6 +1830,13 @@ function setupCreateForm() {
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const btn = document.getElementById('createSubmit');
+
+    if (channelSelect && channelSelect.value && channelSelect.value !== state.activeChannelId) {
+      await setActiveChannel(channelSelect.value);
+      renderTopbar();
+      renderSidebar();
+    }
+
     const title = document.getElementById('f-title').value.trim();
     const kind = kindSelect.value;
     const dur = document.getElementById('f-dur').value.trim() || '0:00';
@@ -1361,13 +1890,51 @@ function setupCreateForm() {
    ============================================================ */
 window.addEventListener('pixeltube:signin', pixlectSignIn);
 
-document.addEventListener('click', e => {
+document.addEventListener('click', async (e) => {
+  // Channel switch (from menu, sidebar modal, or channel page)
+  const sw = e.target.closest('[data-action="switch-channel"]');
+  if (sw) {
+    e.preventDefault();
+    const cid = sw.dataset.cid;
+    if (cid) {
+      await setActiveChannel(cid);
+      closeModal();
+      renderTopbar();
+      renderSidebar();
+      render(true);
+    }
+    return;
+  }
+
+  // Channel page buttons
+  if (e.target.id === 'makeActiveBtn') {
+    const cid = e.target.dataset.cid;
+    await setActiveChannel(cid);
+    renderTopbar();
+    renderSidebar();
+    render(true);
+    return;
+  }
+  if (e.target.id === 'deleteChBtn') {
+    const cid = e.target.dataset.cid;
+    if (!confirm('Delete this channel permanently?')) return;
+    const ok = await deleteChannel(cid);
+    if (ok) { location.hash = '#/'; renderTopbar(); renderSidebar(); render(true); }
+    return;
+  }
+  if (e.target.id === 'editChBtn') {
+    // active channel is already the one being viewed if we're here
+    promptEditChannel(CTX);
+    return;
+  }
+
   const el = e.target.closest('[data-action]');
   if (!el) return;
   const action = el.dataset.action;
   if (action === 'menu') { e.preventDefault(); document.body.classList.toggle('nav-open'); return; }
-  if (action === 'like') { e.preventDefault(); e.stopPropagation(); toggleLike(el.dataset.video); return; }
-  if (action === 'sub')  { e.preventDefault(); e.stopPropagation(); toggleSub(el.dataset.channel); return; }
+  if (action === 'like')    { e.preventDefault(); e.stopPropagation(); toggleLike(el.dataset.video); return; }
+  if (action === 'dislike') { e.preventDefault(); e.stopPropagation(); toggleDislike(el.dataset.video); return; }
+  if (action === 'sub')     { e.preventDefault(); e.stopPropagation(); toggleSub(el.dataset.channel); return; }
   if (action === 'mute') {
     e.preventDefault();
     const mini = el.closest('.mini');
@@ -1420,14 +1987,10 @@ document.addEventListener('click', (e) => {
     if (!confirm('Delete this playlist?')) return;
     deletePlaylist(pid).then(() => { location.hash = '#/playlists'; toast('Playlist deleted'); });
   }
-  if (e.target.id === 'editChBtn') promptEditChannel(CTX);
 });
 
-$('#searchInput').addEventListener('input', e => {
-  state.search = e.target.value.trim();
-  if (state.route[0] !== 'home' && state.search) location.hash = '#/';
-  else render(true);
-});
+wireSearchInput(CTX);
+wireClearHistory(CTX);
 
 function parseRoute() {
   const parts = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean);
