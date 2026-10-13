@@ -37,7 +37,6 @@ import {
   canCurrentUserUpload, requireGuidelines, hasAcceptedGuidelines,
   promptGuidelines, isUserSuspended
 } from './security.js';
-
 import {
   viewPrivacy, viewTerms, viewGuidelines
 } from './legal.js';
@@ -1396,8 +1395,7 @@ function render(force = false) {
   else if (page === 'channel')   view.innerHTML = viewChannel(CTX, arg);
   else if (page === 'playlists') view.innerHTML = viewPlaylists(CTX);
   else if (page === 'playlist')  view.innerHTML = viewPlaylist(CTX);
-  else if (page === 'admin')     view.innerHTML = viewAdminQueue(CTX);
-  else if (page === 'privacy')   view.innerHTML = viewPrivacy();
+  else if (page === 'admin')     view.innerHTML = viewAdmin(CTX, arg || 'reports');
   else if (page === 'terms')     view.innerHTML = viewTerms();
   else if (page === 'guidelines')view.innerHTML = viewGuidelines();
   else                           view.innerHTML = viewFeed(CTX);
@@ -1924,30 +1922,66 @@ document.addEventListener('click', async (e) => {
   }
   if (action === 'admin-dismiss') {
     e.preventDefault();
-    adminDismissReport(CTX, el.dataset.rid);
+    (async () => {
+      try {
+        await update(ref(db, `pixeltube/reports/${el.dataset.rid}`), {
+          status: 'resolved',
+          resolvedAt: Date.now(),
+          resolvedBy: PIXLECT.user.username,
+          action: 'dismissed'
+        });
+        toast('Report dismissed');
+        render(true);
+      } catch (err) { console.error(err); toast('Could not dismiss'); }
+    })();
     return;
   }
   if (action === 'admin-delete') {
     e.preventDefault();
-    adminDeleteFromReport(CTX, el.dataset.rid, el.dataset.vid);
+    if (!confirm('Delete this video permanently?')) return;
+    (async () => {
+      await deleteVideo(el.dataset.vid);
+      try {
+        await update(ref(db, `pixeltube/reports/${el.dataset.rid}`), {
+          status: 'resolved',
+          resolvedAt: Date.now(),
+          resolvedBy: PIXLECT.user.username,
+          action: 'deleted-video'
+        });
+      } catch (_) {}
+      toast('Video deleted and report resolved');
+      render(true);
+    })();
     return;
   }
   if (action === 'admin-suspend') {
     e.preventDefault();
-    adminSuspendFromReport(CTX, el.dataset.cid, el.dataset.rid);
+    const reason = prompt('Reason for suspension (shown to the channel owner):');
+    if (!reason) return;
+    (async () => {
+      const ok = await suspendChannel(CTX, el.dataset.cid, reason);
+      if (!ok) return;
+      if (el.dataset.rid) {
+        try {
+          await update(ref(db, `pixeltube/reports/${el.dataset.rid}`), {
+            status: 'resolved',
+            resolvedAt: Date.now(),
+            resolvedBy: PIXLECT.user.username,
+            action: 'suspended-channel'
+          });
+        } catch (_) {}
+      }
+      render(true);
+    })();
     return;
   }
   if (action === 'admin-delete-standalone') {
     e.preventDefault();
-    adminDeleteStandalone(CTX, el.dataset.vid);
-    return;
-  }
-  if (action === 'admin-unsuspend') {
-    e.preventDefault();
-    const cid = el.dataset.cid;
-    if (!cid) return;
-    const ok = await unsuspendChannel(CTX, cid);
-    if (ok) render(true);
+    if (!confirm('Delete this video permanently?')) return;
+    deleteVideo(el.dataset.vid).then(() => {
+      toast('Video deleted');
+      render(true);
+    });
     return;
   }
   if (action === 'pl-add') {
