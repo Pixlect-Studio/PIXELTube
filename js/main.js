@@ -31,15 +31,18 @@ import {
 } from './channel.js';
 
 import {
-  viewAdminQueue, promptReportVideo,
-  adminDismissReport, adminDeleteFromReport,
-  adminSuspendFromReport, adminDeleteStandalone, unsuspendChannel,
-  canCurrentUserUpload, requireGuidelines, hasAcceptedGuidelines,
-  promptGuidelines, isUserSuspended
+  promptReportVideo, promptGuidelines,
+  canCurrentUserUpload, hasAcceptedGuidelines,
+  suspendChannel, unsuspendChannel, isUserSuspended
 } from './security.js';
+
+import { viewAdmin } from './admin.js';
+
 import {
   viewPrivacy, viewTerms, viewGuidelines
 } from './legal.js';
+
+import { viewStudio } from './studio.js';
 
 /* ============================================================
    FIREBASE — PRIMARY + BACKUP
@@ -49,7 +52,7 @@ const FIREBASE_PRIMARY = {
   authDomain: "the-amazing-digital-fanbase.firebaseapp.com",
   databaseURL: "https://the-amazing-digital-fanbase-default-rtdb.firebaseio.com",
   projectId: "the-amazing-digital-fanbase",
-  storageBucket: "the-amazing-digital-fanbase.storage.app",
+  storageBucket: "the-amazing-digital-fanbase.firebasestorage.app",
   messagingSenderId: "899632202736",
   appId: "1:899632202736:web:3b6de3d2e312bd6d6b5335"
 };
@@ -194,7 +197,7 @@ const state = {
   uid: PIXLECT.user ? ('pl_' + PIXLECT.user.uid) : getLocalUid(),
   mode: 'connecting',
   videos: {}, channels: {}, playlists: {}, subs: {}, likes: {}, dislikes: {},
-  users: {}, reports: {},
+  users: {}, reports: {}, comments: {},
   search: '', route: ['home'],
   viewedThisSession: new Set(),
   myChannelIds: [],
@@ -495,6 +498,7 @@ function applyData(d) {
   state.playlists = d.playlists || {};
   state.users     = d.users     || {};
   state.reports   = d.reports   || {};
+  state.comments  = d.comments  || {};
 
   const u = (d.users && d.users[state.uid]) || {};
   state.subs     = u.subs     || {};
@@ -648,7 +652,7 @@ async function registerView(vid) {
 }
 
 /* ============================================================
-   VIDEO SOURCE — wrappers around storage.js
+   VIDEO SOURCE
    ============================================================ */
 async function hydrateVideosInView(root) {
   const vids = $$('video[data-vid]', root || document);
@@ -677,12 +681,11 @@ async function hydrateVideosInView(root) {
 }
 
 /* ============================================================
-   CREATE VIDEO — includes suspension + moderation checks
+   CREATE VIDEO
    ============================================================ */
 async function createVideo(payload) {
   if (!PIXLECT.user) { toast('Sign in to upload'); pixlectSignIn(); return null; }
 
-  /* Block suspended users */
   const block = canCurrentUserUpload(CTX);
   if (block) {
     if (block.reason === 'suspended') {
@@ -925,10 +928,6 @@ const CTX = {
   persistLocal, applyData, remove, ref, get, set, update,
 
   hydrateVideosInView,
-
-  /* security.js needs these */
-  reportVideo: (...args) => import('./security.js').then(m => m.reportVideo(CTX, ...args)),
-  promptReportVideo: (...args) => import('./security.js').then(m => m.promptReportVideo(CTX, ...args)),
 
   get route() { return state.route; }
 };
@@ -1239,8 +1238,7 @@ const ICONS = {
   minis:  '<svg viewBox="0 0 24 24"><path d="M13 2L4.5 13H11l-1 9L18.5 11H12z"/></svg>',
   subs:   '<svg viewBox="0 0 24 24"><path d="M4 6h16v2H4zm0 5h16v2H4zm0 5h10v2H4z"/><circle cx="18" cy="16" r="3"/></svg>',
   like:   '<svg viewBox="0 0 24 24"><path d="M2 20h3V9H2zm19.8-9.4c0-.9-.7-1.6-1.6-1.6h-5l.8-3.9.03-.3c0-.3-.1-.6-.3-.8L14.9 3 9.4 8.6c-.3.2-.4.6-.4.9V18c0 .9.7 1.6 1.6 1.6h7.2c.7 0 1.2-.4 1.4-1l2.4-5.7c.1-.2.1-.4.1-.6z"/></svg>',
-  create: '<svg viewBox="0 0 24 24"><path d="M17 10.5V7a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3.5l4 4v-11z"/></svg>',
-  admin:  '<svg viewBox="0 0 24 24"><path d="M12 1l3 6 6 1-4.5 4.5L18 19l-6-3-6 3 1.5-6.5L3 8l6-1z"/></svg>'
+  create: '<svg viewBox="0 0 24 24"><path d="M17 10.5V7a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3.5l4 4v-11z"/></svg>'
 };
 
 function renderSidebar() {
@@ -1283,7 +1281,8 @@ function renderSidebar() {
     <a class="nav ${page === 'subs' ? 'active' : ''}" href="#/subs">${ICONS.subs} Subscriptions <span class="count">${subIds.length || ''}</span></a>
     <a class="nav ${page === 'liked' ? 'active' : ''}" href="#/liked">${ICONS.like} Liked <span class="count">${likeCount || ''}</span></a>
     <a class="nav ${page === 'create' ? 'active' : ''}" href="#/create">${ICONS.create} Create</a>
-    ${isAdmin() ? `<a class="nav ${page === 'admin' ? 'active' : ''}" href="#/admin">${ICONS.admin} Admin</a>` : ''}
+    ${PIXLECT.user && active ? `<a class="nav ${page === 'studio' ? 'active' : ''}" href="#/studio">Studio</a>` : ''}
+    ${isAdmin() ? `<a class="nav ${page === 'admin' ? 'active' : ''}" href="#/admin">Admin</a>` : ''}
 
     <h4>Playlists</h4>
     ${myPls.length ? myPls.map(pl => `
@@ -1396,6 +1395,8 @@ function render(force = false) {
   else if (page === 'playlists') view.innerHTML = viewPlaylists(CTX);
   else if (page === 'playlist')  view.innerHTML = viewPlaylist(CTX);
   else if (page === 'admin')     view.innerHTML = viewAdmin(CTX, arg || 'reports');
+  else if (page === 'studio')    view.innerHTML = viewStudio(CTX, arg || 'dashboard');
+  else if (page === 'privacy')   view.innerHTML = viewPrivacy();
   else if (page === 'terms')     view.innerHTML = viewTerms();
   else if (page === 'guidelines')view.innerHTML = viewGuidelines();
   else                           view.innerHTML = viewFeed(CTX);
@@ -1439,7 +1440,6 @@ function viewCreate() {
       `<button class="btn-primary" id="createSignIn" type="button">Sign in with PIXLECT</button>`);
   }
 
-  /* Suspended banner */
   const block = canCurrentUserUpload(CTX);
   if (block && block.reason === 'suspended') {
     const info = block.info || {};
@@ -1462,7 +1462,7 @@ function viewCreate() {
   return `
     <div class="form-wrap">
       <h1>Upload to PIXELTube</h1>
-      <p class="lede">Publishing to <b>${esc(ch.name)}</b>. Longs go to Backblaze B2, Shorts to Supabase. By uploading, you agree to our <a href="#/guidelines" style="color:var(--accent)">Community Guidelines</a>.</p>
+      <p class="lede">Publishing to <b>${esc(ch.name)}</b>. Minis go to Firebase, Longs to Supabase / B2. By uploading, you agree to our <a href="#/guidelines" style="color:var(--accent)">Community Guidelines</a>.</p>
       <form id="createForm" autocomplete="off">
         ${channels.length > 1 ? `
         <div class="field">
@@ -1543,8 +1543,8 @@ function viewCreate() {
           <div class="field">
             <label for="f-kind">Type</label>
             <select id="f-kind">
-              <option value="long">Long (B2 · up to 8 min / 50 MB)</option>
-              <option value="mini">Mini / Short (Supabase · up to 1 min / 8 MB)</option>
+              <option value="long">Long (Supabase / B2 · up to 8 min / 50 MB)</option>
+              <option value="mini">Mini / Short (Firebase · up to 1 min / 8 MB)</option>
             </select>
           </div>
           <div class="field">
@@ -1785,12 +1785,10 @@ function setupCreateForm() {
     if (thumbMode === 'url') updateThumbPreview();
   });
 
-  /* Wrapped in requireGuidelines so first-time uploaders see the rules */
   const doSubmit = async (e) => {
     e.preventDefault();
     const btn = document.getElementById('createSubmit');
 
-    /* Re-check suspension on submit */
     const block = canCurrentUserUpload(CTX);
     if (block && block.reason === 'suspended') {
       toast('Your account is suspended and cannot upload.');
@@ -1984,6 +1982,13 @@ document.addEventListener('click', async (e) => {
     });
     return;
   }
+  if (action === 'admin-unsuspend') {
+    e.preventDefault();
+    const cid = el.dataset.cid;
+    if (!cid) return;
+    unsuspendChannel(CTX, cid).then(ok => { if (ok) render(true); });
+    return;
+  }
   if (action === 'pl-add') {
     e.preventDefault();
     addToPlaylist(el.dataset.pid, el.dataset.vid);
@@ -2006,6 +2011,7 @@ document.addEventListener('play', (e) => {
 
 document.addEventListener('click', (e) => {
   if (e.target.id === 'emptyCreateChannel') promptCreateChannel(CTX);
+  if (e.target.id === 'studioCreateChannel') promptCreateChannel(CTX);
   if (e.target.id === 'newPlaylistBtn') {
     const name = prompt('Playlist name:');
     if (name) createPlaylist(name).then(pid => { if (pid) location.hash = '#/playlist/' + pid; });
