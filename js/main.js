@@ -30,6 +30,18 @@ import {
   viewChannel, promptCreateChannel, promptEditChannel
 } from './channel.js';
 
+import {
+  viewAdminQueue, promptReportVideo,
+  adminDismissReport, adminDeleteFromReport,
+  adminSuspendFromReport, adminDeleteStandalone, unsuspendChannel,
+  canCurrentUserUpload, requireGuidelines, hasAcceptedGuidelines,
+  promptGuidelines, isUserSuspended
+} from './security.js';
+
+import {
+  viewPrivacy, viewTerms, viewGuidelines
+} from './legal.js';
+
 /* ============================================================
    FIREBASE — PRIMARY + BACKUP
    ============================================================ */
@@ -38,7 +50,7 @@ const FIREBASE_PRIMARY = {
   authDomain: "the-amazing-digital-fanbase.firebaseapp.com",
   databaseURL: "https://the-amazing-digital-fanbase-default-rtdb.firebaseio.com",
   projectId: "the-amazing-digital-fanbase",
-  storageBucket: "the-amazing-digital-fanbase.firebasestorage.app",
+  storageBucket: "the-amazing-digital-fanbase.storage.app",
   messagingSenderId: "899632202736",
   appId: "1:899632202736:web:3b6de3d2e312bd6d6b5335"
 };
@@ -183,7 +195,7 @@ const state = {
   uid: PIXLECT.user ? ('pl_' + PIXLECT.user.uid) : getLocalUid(),
   mode: 'connecting',
   videos: {}, channels: {}, playlists: {}, subs: {}, likes: {}, dislikes: {},
-  users: {},
+  users: {}, reports: {},
   search: '', route: ['home'],
   viewedThisSession: new Set(),
   myChannelIds: [],
@@ -279,7 +291,7 @@ function showStorageAlert(message) {
 }
 
 /* ============================================================
-   CHANNEL HELPERS — multi-channel
+   CHANNEL HELPERS
    ============================================================ */
 const primaryChannelId = () => PIXLECT.user ? ('pl_' + PIXLECT.user.uid) : null;
 
@@ -395,7 +407,6 @@ async function deleteChannel(cid) {
     toast(`This channel has ${videos.length} video${videos.length === 1 ? '' : 's'}. Delete or move them first.`);
     return false;
   }
-
   if (state.mode === 'firebase' && db) {
     try {
       await remove(ref(db, `pixeltube/channels/${cid}`));
@@ -466,7 +477,7 @@ function bootLocal() {
   state.mode = 'local';
   let raw = null;
   try { raw = JSON.parse(localStorage.getItem('pixeltube_db') || 'null'); } catch (_) {}
-  if (!raw) raw = { channels: {}, videos: {}, videoSrc: {}, users: {}, comments: {}, playlists: {} };
+  if (!raw) raw = { channels: {}, videos: {}, videoSrc: {}, users: {}, comments: {}, playlists: {}, reports: {} };
   localDB = raw;
   applyData(localDB);
   setStatus();
@@ -484,6 +495,7 @@ function applyData(d) {
   state.channels  = d.channels  || {};
   state.playlists = d.playlists || {};
   state.users     = d.users     || {};
+  state.reports   = d.reports   || {};
 
   const u = (d.users && d.users[state.uid]) || {};
   state.subs     = u.subs     || {};
@@ -637,7 +649,7 @@ async function registerView(vid) {
 }
 
 /* ============================================================
-   VIDEO SOURCE — thin wrappers around storage.js
+   VIDEO SOURCE — wrappers around storage.js
    ============================================================ */
 async function hydrateVideosInView(root) {
   const vids = $$('video[data-vid]', root || document);
@@ -666,10 +678,22 @@ async function hydrateVideosInView(root) {
 }
 
 /* ============================================================
-   CREATE VIDEO
+   CREATE VIDEO — includes suspension + moderation checks
    ============================================================ */
 async function createVideo(payload) {
   if (!PIXLECT.user) { toast('Sign in to upload'); pixlectSignIn(); return null; }
+
+  /* Block suspended users */
+  const block = canCurrentUserUpload(CTX);
+  if (block) {
+    if (block.reason === 'suspended') {
+      toast('Your account is suspended: ' + (block.info?.reason || 'Violation of guidelines'));
+    } else {
+      toast('You can\'t upload right now');
+    }
+    return null;
+  }
+
   const ch = myChannel();
   if (!ch) { promptCreateChannel(CTX); return null; }
 
@@ -899,9 +923,13 @@ const CTX = {
 
   pixlectSignIn, toast, openModal, closeModal,
   renderTopbar, renderSidebar, render,
-  persistLocal, applyData, remove, ref, get, set,
+  persistLocal, applyData, remove, ref, get, set, update,
 
   hydrateVideosInView,
+
+  /* security.js needs these */
+  reportVideo: (...args) => import('./security.js').then(m => m.reportVideo(CTX, ...args)),
+  promptReportVideo: (...args) => import('./security.js').then(m => m.promptReportVideo(CTX, ...args)),
 
   get route() { return state.route; }
 };
@@ -1212,7 +1240,8 @@ const ICONS = {
   minis:  '<svg viewBox="0 0 24 24"><path d="M13 2L4.5 13H11l-1 9L18.5 11H12z"/></svg>',
   subs:   '<svg viewBox="0 0 24 24"><path d="M4 6h16v2H4zm0 5h16v2H4zm0 5h10v2H4z"/><circle cx="18" cy="16" r="3"/></svg>',
   like:   '<svg viewBox="0 0 24 24"><path d="M2 20h3V9H2zm19.8-9.4c0-.9-.7-1.6-1.6-1.6h-5l.8-3.9.03-.3c0-.3-.1-.6-.3-.8L14.9 3 9.4 8.6c-.3.2-.4.6-.4.9V18c0 .9.7 1.6 1.6 1.6h7.2c.7 0 1.2-.4 1.4-1l2.4-5.7c.1-.2.1-.4.1-.6z"/></svg>',
-  create: '<svg viewBox="0 0 24 24"><path d="M17 10.5V7a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3.5l4 4v-11z"/></svg>'
+  create: '<svg viewBox="0 0 24 24"><path d="M17 10.5V7a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3.5l4 4v-11z"/></svg>',
+  admin:  '<svg viewBox="0 0 24 24"><path d="M12 1l3 6 6 1-4.5 4.5L18 19l-6-3-6 3 1.5-6.5L3 8l6-1z"/></svg>'
 };
 
 function renderSidebar() {
@@ -1255,6 +1284,7 @@ function renderSidebar() {
     <a class="nav ${page === 'subs' ? 'active' : ''}" href="#/subs">${ICONS.subs} Subscriptions <span class="count">${subIds.length || ''}</span></a>
     <a class="nav ${page === 'liked' ? 'active' : ''}" href="#/liked">${ICONS.like} Liked <span class="count">${likeCount || ''}</span></a>
     <a class="nav ${page === 'create' ? 'active' : ''}" href="#/create">${ICONS.create} Create</a>
+    ${isAdmin() ? `<a class="nav ${page === 'admin' ? 'active' : ''}" href="#/admin">${ICONS.admin} Admin</a>` : ''}
 
     <h4>Playlists</h4>
     ${myPls.length ? myPls.map(pl => `
@@ -1366,6 +1396,10 @@ function render(force = false) {
   else if (page === 'channel')   view.innerHTML = viewChannel(CTX, arg);
   else if (page === 'playlists') view.innerHTML = viewPlaylists(CTX);
   else if (page === 'playlist')  view.innerHTML = viewPlaylist(CTX);
+  else if (page === 'admin')     view.innerHTML = viewAdminQueue(CTX);
+  else if (page === 'privacy')   view.innerHTML = viewPrivacy();
+  else if (page === 'terms')     view.innerHTML = viewTerms();
+  else if (page === 'guidelines')view.innerHTML = viewGuidelines();
   else                           view.innerHTML = viewFeed(CTX);
 
   syncDynamic();
@@ -1406,6 +1440,16 @@ function viewCreate() {
       'You need a PIXLECT account to publish videos on PIXELTube.',
       `<button class="btn-primary" id="createSignIn" type="button">Sign in with PIXLECT</button>`);
   }
+
+  /* Suspended banner */
+  const block = canCurrentUserUpload(CTX);
+  if (block && block.reason === 'suspended') {
+    const info = block.info || {};
+    return emptyState('🚫', 'Your account is suspended',
+      `Reason: ${esc(info.reason || 'Violation of community guidelines')}. If you believe this is a mistake, contact support.`,
+      `<a class="btn-ghost" href="#/guidelines">Read Community Guidelines</a>`);
+  }
+
   const channels = myChannels();
   if (!channels.length) {
     return emptyState('🎬', 'Create your PIXELChannel first',
@@ -1420,7 +1464,7 @@ function viewCreate() {
   return `
     <div class="form-wrap">
       <h1>Upload to PIXELTube</h1>
-      <p class="lede">Publishing to <b>${esc(ch.name)}</b>. Longs go to Backblaze B2, Shorts to Supabase.</p>
+      <p class="lede">Publishing to <b>${esc(ch.name)}</b>. Longs go to Backblaze B2, Shorts to Supabase. By uploading, you agree to our <a href="#/guidelines" style="color:var(--accent)">Community Guidelines</a>.</p>
       <form id="createForm" autocomplete="off">
         ${channels.length > 1 ? `
         <div class="field">
@@ -1743,9 +1787,17 @@ function setupCreateForm() {
     if (thumbMode === 'url') updateThumbPreview();
   });
 
-  form.addEventListener('submit', async (e) => {
+  /* Wrapped in requireGuidelines so first-time uploaders see the rules */
+  const doSubmit = async (e) => {
     e.preventDefault();
     const btn = document.getElementById('createSubmit');
+
+    /* Re-check suspension on submit */
+    const block = canCurrentUserUpload(CTX);
+    if (block && block.reason === 'suspended') {
+      toast('Your account is suspended and cannot upload.');
+      return;
+    }
 
     if (channelSelect && channelSelect.value && channelSelect.value !== state.activeChannelId) {
       await setActiveChannel(channelSelect.value);
@@ -1785,6 +1837,15 @@ function setupCreateForm() {
       btn.disabled = false;
       btn.textContent = 'Publish';
     }
+  };
+
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    if (!hasAcceptedGuidelines()) {
+      promptGuidelines(() => doSubmit(e));
+      return;
+    }
+    doSubmit(e);
   });
 }
 
@@ -1850,10 +1911,43 @@ document.addEventListener('click', async (e) => {
     navigator.clipboard?.writeText(url).then(() => toast('Link copied'), () => toast(url));
     return;
   }
+  if (action === 'report-video') {
+    e.preventDefault();
+    promptReportVideo(CTX, el.dataset.video);
+    return;
+  }
   if (action === 'del-video') {
     e.preventDefault();
     if (!confirm('Delete this video permanently?')) return;
     deleteVideo(el.dataset.video).then(() => { location.hash = '#/'; toast('Video deleted'); });
+    return;
+  }
+  if (action === 'admin-dismiss') {
+    e.preventDefault();
+    adminDismissReport(CTX, el.dataset.rid);
+    return;
+  }
+  if (action === 'admin-delete') {
+    e.preventDefault();
+    adminDeleteFromReport(CTX, el.dataset.rid, el.dataset.vid);
+    return;
+  }
+  if (action === 'admin-suspend') {
+    e.preventDefault();
+    adminSuspendFromReport(CTX, el.dataset.cid, el.dataset.rid);
+    return;
+  }
+  if (action === 'admin-delete-standalone') {
+    e.preventDefault();
+    adminDeleteStandalone(CTX, el.dataset.vid);
+    return;
+  }
+  if (action === 'admin-unsuspend') {
+    e.preventDefault();
+    const cid = el.dataset.cid;
+    if (!cid) return;
+    const ok = await unsuspendChannel(CTX, cid);
+    if (ok) render(true);
     return;
   }
   if (action === 'pl-add') {

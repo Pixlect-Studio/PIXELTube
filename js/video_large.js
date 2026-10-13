@@ -1,6 +1,7 @@
 /* ============================================================
    PIXELTube — video_large.js
    Standard horizontal watch page, comments, playlist save menu.
+   Includes like, dislike, subscribe, share, report, and admin delete.
    ============================================================ */
 import { esc, fmt, timeAgo, avatarHTML, thumbHTML, initial } from './helpers.js';
 
@@ -28,6 +29,7 @@ export function viewWatch(ctx, vid) {
   const subbed   = isSubbed(c.id);
   const isMine   = PIXLECT.user && v.createdBy === PIXLECT.user.uid;
   const canDelete = isMine || isAdmin();
+  const canReport = PIXLECT.user && !isMine;
 
   /* ---- Up next ---- */
   const upNext = videosSorted()
@@ -83,16 +85,28 @@ export function viewWatch(ctx, vid) {
          Save
        </button>`;
 
-  /* ---- Admin / owner delete button ---- */
+  /* ---- Report button (only when signed in and not the owner) ---- */
+  const reportBtn = canReport
+    ? `<button class="pill" data-action="report-video" data-video="${esc(vid)}" type="button">
+         <svg viewBox="0 0 24 24"><path d="M12 2L1 21h22zM13 18h-2v-2h2zm0-4h-2V9h2z"/></svg>
+         Report
+       </button>`
+    : '';
+
+  /* ---- Delete button (owner or admin) ---- */
   const deleteBtn = canDelete
     ? `<button class="pill" data-action="del-video" data-video="${esc(vid)}" type="button" style="color:var(--accent)">
          <svg viewBox="0 0 24 24"><path d="M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6zM19 4h-3.5l-1-1h-5l-1 1H5v2h14z"/></svg>
          Delete
        </button>` : '';
 
-  /* ---- Admin badge on channel name ---- */
+  /* ---- Admin badge next to channel name ---- */
   const adminTag = isAdmin()
     ? `<span style="display:inline-flex;align-items:center;gap:4px;margin-left:8px;font-size:10.5px;font-weight:800;letter-spacing:.5px;color:var(--warn);background:rgba(251,191,36,.12);padding:3px 8px;border-radius:99px;border:1px solid rgba(251,191,36,.35)">ADMIN</span>`
+    : '';
+
+  const emergencyTag = (v.srcBackend === 'backup' || v.srcBackend === 'url-backup')
+    ? ' · <span style="color:var(--warn)">emergency storage</span>'
     : '';
 
   return `
@@ -138,6 +152,7 @@ export function viewWatch(ctx, vid) {
           Share
         </button>
 
+        ${reportBtn}
         ${deleteBtn}
       </div>
 
@@ -147,10 +162,7 @@ export function viewWatch(ctx, vid) {
           · ${esc(timeAgo(v.createdAt))}
           · ${fmt(likesOf(vid))} likes
           · ${fmt(dislikesOf(vid))} dislikes
-          · ${v.kind === 'mini' ? 'Mini' : 'Long'}
-          ${v.srcBackend === 'backup' || v.srcBackend === 'url-backup'
-            ? ' · <span style="color:var(--warn)">emergency storage</span>'
-            : ''}
+          · ${v.kind === 'mini' ? 'Mini' : 'Long'}${emergencyTag}
         </span>
         ${esc(v.desc || '')}
       </div>
