@@ -1,9 +1,24 @@
 /* ============================================================
    PIXELTube — storage.js
-   Backend abstraction:
-     - supabase : public URL from Supabase Storage (Shorts + Longs)
-     - b2       : presigned URLs via Cloudflare Worker (Longs, primary)
-     - firebase : base64 in RTDB (legacy fallback / migration path)
+   Backend abstraction for video uploads and playback.
+
+   Routing:
+     Minis / Shorts
+       Primary  : Firebase Realtime DB (base64)
+       Fallback : Backblaze B2 (via Cloudflare Worker signer)
+
+     Longs
+       Primary  : Supabase Storage
+       Fallback : Backblaze B2
+       Last try : Firebase Realtime DB (base64)
+
+   Public API:
+     uploadVideo(ctx, file, vid, kind, onProgress)
+       → { storedSrc, srcBackend }
+     uploadFromUrl(url)
+       → { storedSrc, srcBackend }
+     resolvePlaybackUrl(ctx, vid) → string (URL or data URL)
+     deleteVideoSource(ctx, vid) → void
    ============================================================ */
 
 /* ============================================================
@@ -17,6 +32,7 @@ const B2_SIGNER_URL   = 'https://pixeltube-signer.aaraiz-adnan14.workers.dev';
    ============================================================ */
 
 async function b2Upload(file, key, onProgress) {
+  /* 1. Ask the Worker for a presigned PUT URL */
   const signRes = await fetch(`${B2_SIGNER_URL}/sign-upload`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -27,12 +43,12 @@ async function b2Upload(file, key, onProgress) {
     const err = await signRes.text().catch(() => 'signer error');
     throw new Error(`Signer rejected the request: ${err}`);
   }
+
   const { url, error } = await signRes.json();
   if (error) throw new Error(`Signer error: ${error}`);
   if (!url) throw new Error('Signer returned no URL');
 
-  /* fetch() doesn't expose upload progress in browsers, but we can still
-     send a "started" tick so the UI knows something is happening. */
+  /* 2. PUT the file directly to B2. */
   if (onProgress) onProgress(0, file.size);
 
   const putRes = await fetch(url, {
@@ -47,6 +63,8 @@ async function b2Upload(file, key, onProgress) {
   }
 
   if (onProgress) onProgress(file.size, file.size);
+
+  /* Return the object key — playback re-signs on every watch. */
   return key;
 }
 
@@ -56,6 +74,7 @@ async function b2PlaybackUrl(key) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ key })
   });
+
   if (!res.ok) throw new Error(`Playback signing failed (${res.status})`);
   const { url, error } = await res.json();
   if (error) throw new Error(`Signer error: ${error}`);
@@ -63,8 +82,9 @@ async function b2PlaybackUrl(key) {
   return url;
 }
 
-function b2KeyFor(uid, vid, ext) {
-  return `${uid}/${vid}.${(ext || 'mp4').toLowerCase()}`;
+function b2KeyFor(uid, vid, ext, kind) {
+  const prefix = kind === 'mini' ? 'shorts' : 'longs';
+  return `${prefix}/${uid}/${vid}.${(ext || 'mp4').toLowerCase()}`;
 }
 
 /* ============================================================
@@ -72,8 +92,6 @@ function b2KeyFor(uid, vid, ext) {
    ============================================================ */
 
 async function supabaseUpload(client, file, key, onProgress) {
-  /* Supabase JS has no progress callback in this SDK version,
-     so we just tick the ends. */
   if (onProgress) onProgress(0, file.size);
 
   const { error } = await client.storage
@@ -94,11 +112,16 @@ async function supabaseUpload(client, file, key, onProgress) {
 }
 
 function supabasePublicUrl(client, key) {
-  return client.storage.from(SUPABASE_BUCKET).getPublicUrl(key)?.data?.publicUrl || '';
+  try {
+    const { data } = client.storage.from(SUPABASE_BUCKET).getPublicUrl(key);
+    return data?.publicUrl || '';
+  } catch (_) {
+    return '';
+  }
 }
 
 /* ============================================================
-   FIREBASE — legacy base64 (kept for older videos)
+   FIREBASE — base64 (primary for Minis, fallback for Longs)
    ============================================================ */
 
 function fileToDataURL(file) {
@@ -122,6 +145,7 @@ async function firebaseUpload(ctx, vid, fileOrDataUrl) {
     throw new Error('firebaseUpload expects a File, Blob, or data URL');
   }
 
+  /* Try primary Firebase */
   if (db) {
     try {
       await set(ref(db, `pixeltube/videoSrc/${vid}`), dataUrl);
@@ -130,6 +154,8 @@ async function firebaseUpload(ctx, vid, fileOrDataUrl) {
       console.warn('[storage] Firebase primary write failed:', e?.message);
     }
   }
+
+  /* Try backup Firebase */
   if (dbBackup) {
     try {
       await set(ref(dbBackup, `pixeltube/videoSrc/${vid}`), dataUrl);
@@ -138,11 +164,13 @@ async function firebaseUpload(ctx, vid, fileOrDataUrl) {
       console.error('[storage] Firebase backup write also failed:', e?.message);
     }
   }
+
   throw new Error('Both Firebase backends rejected the write');
 }
 
 async function firebaseRead(ctx, vid, preferBackend) {
   const { db, dbBackup, ref, get } = ctx;
+
   const tryOne = async (h) => {
     if (!h) return '';
     try {
@@ -150,6 +178,7 @@ async function firebaseRead(ctx, vid, preferBackend) {
       return snap.val() || '';
     } catch (_) { return ''; }
   };
+
   if (preferBackend === 'firebase-backup') {
     return (await tryOne(dbBackup)) || (await tryOne(db));
   }
@@ -163,64 +192,106 @@ async function firebaseDelete(ctx, vid) {
 }
 
 /* ============================================================
-   PUBLIC API
+   READ HELPER — reads the non-base64 pointer (URL or B2 key)
    ============================================================ */
+async function readStoredSrc(ctx, vid) {
+  const { db, ref, get } = ctx;
+  if (!db) return '';
+  try {
+    const snap = await get(ref(db, `pixeltube/videoSrc/${vid}`));
+    return snap.val() || '';
+  } catch (_) {
+    return '';
+  }
+}
 
-/* Upload a video.
-   kind: 'mini' (Short) → Supabase primary, B2 not used
-         'long'         → B2 primary, Supabase fallback
-   Returns { storedSrc, srcBackend } */
+/* ============================================================
+   PUBLIC API — upload
+   ============================================================
+
+   Minis:
+     Firebase base64 → B2
+
+   Longs:
+     Supabase → B2 → Firebase base64
+   ============================================================ */
 export async function uploadVideo(ctx, file, vid, kind, onProgress) {
   const uid = ctx.PIXLECT?.user?.uid;
   if (!uid) throw new Error('Not signed in');
 
   const ext = (file.name?.split('.').pop() || 'mp4').toLowerCase();
 
-  /* ---- Shorts → Supabase ---- */
+  /* --------------------------------------------------------
+     MINIS — Firebase base64 primary, B2 fallback
+     -------------------------------------------------------- */
   if (kind === 'mini') {
-    if (!ctx.supa) throw new Error('Supabase client not ready');
-    const key = `shorts/${uid}/${vid}.${ext}`;
+    /* Try Firebase first */
     try {
+      const backend = await firebaseUpload(ctx, vid, file);
+      return { storedSrc: '', srcBackend: backend };
+    } catch (e) {
+      console.warn('[storage] Firebase Mini upload failed, trying B2:', e?.message);
+    }
+
+    /* B2 fallback */
+    try {
+      const key = b2KeyFor(uid, vid, ext, 'mini');
+      await b2Upload(file, key, onProgress);
+      return { storedSrc: key, srcBackend: 'b2' };
+    } catch (e) {
+      console.error('[storage] B2 Mini fallback also failed:', e?.message);
+      throw new Error('Both Firebase and B2 rejected the Mini upload');
+    }
+  }
+
+  /* --------------------------------------------------------
+     LONGS — Supabase primary, B2 fallback, Firebase last
+     -------------------------------------------------------- */
+
+  /* Try Supabase first */
+  if (ctx.supa) {
+    try {
+      const key = `longs/${uid}/${vid}.${ext}`;
       const url = await supabaseUpload(ctx.supa, file, key, onProgress);
       return { storedSrc: url, srcBackend: 'supabase' };
     } catch (e) {
-      console.warn('[storage] Supabase Short upload failed, falling back to Firebase base64:', e?.message);
+      console.warn('[storage] Supabase Long upload failed, trying B2:', e?.message);
     }
-    /* If Supabase fails, fall back to base64 — this keeps Shorts working
-       even if Supabase is down. */
-    const backend = await firebaseUpload(ctx, vid, file);
-    const dataUrl = await firebaseRead(ctx, vid, backend);
-    return { storedSrc: dataUrl, srcBackend: backend };
   }
 
-  /* ---- Longs → B2 primary, Supabase fallback ---- */
-  const b2key = b2KeyFor(uid, vid, ext);
+  /* B2 fallback */
   try {
-    await b2Upload(file, b2key, onProgress);
-    return { storedSrc: b2key, srcBackend: 'b2' };
+    const key = b2KeyFor(uid, vid, ext, 'long');
+    await b2Upload(file, key, onProgress);
+    return { storedSrc: key, srcBackend: 'b2' };
   } catch (e) {
-    console.warn('[storage] B2 upload failed, trying Supabase:', e?.message);
+    console.warn('[storage] B2 Long fallback failed, trying Firebase:', e?.message);
   }
 
-  if (ctx.supa) {
-    const key = `longs/${uid}/${vid}.${ext}`;
-    const url = await supabaseUpload(ctx.supa, file, key, onProgress);
-    return { storedSrc: url, srcBackend: 'supabase' };
+  /* Firebase last resort — only if file is small enough for RTDB */
+  if (file.size && file.size <= 8 * 1024 * 1024) {
+    const backend = await firebaseUpload(ctx, vid, file);
+    return { storedSrc: '', srcBackend: backend };
   }
 
-  throw new Error('No long-form backend available');
+  throw new Error('All storage backends rejected the Long upload');
 }
 
+/* ---- Paste-URL path ---- */
 export function uploadFromUrl(url) {
   return { storedSrc: url, srcBackend: 'url' };
 }
 
-/* Resolve a stored source into a URL the <video> tag can play. */
+/* ============================================================
+   PUBLIC API — playback resolution
+   ============================================================ */
 export async function resolvePlaybackUrl(ctx, vid) {
   const v = ctx.state?.videos?.[vid];
   if (!v) return '';
+
   const backend = v.srcBackend || 'firebase';
 
+  /* B2 — re-sign on every playback since URLs expire */
   if (backend === 'b2') {
     const key = await readStoredSrc(ctx, vid);
     if (!key) return '';
@@ -232,24 +303,21 @@ export async function resolvePlaybackUrl(ctx, vid) {
     }
   }
 
+  /* Supabase / pasted URL — stored src IS the playback URL */
   if (backend === 'supabase' || backend === 'url' || backend === 'url-backup') {
     return await readStoredSrc(ctx, vid);
   }
 
+  /* Firebase / Firebase-backup — base64 in the DB */
   return await firebaseRead(ctx, vid, backend);
 }
 
-/* Read the raw stored src string (path or URL, not base64). */
-async function readStoredSrc(ctx, vid) {
-  const { db, ref, get } = ctx;
-  if (!db) return '';
-  try {
-    const snap = await get(ref(db, `pixeltube/videoSrc/${vid}`));
-    return snap.val() || '';
-  } catch (_) { return ''; }
-}
-
-/* Clean up. B2/Supabase files stay in the bucket; we only drop the pointer. */
+/* ============================================================
+   PUBLIC API — deletion
+   Firebase base64 entries get removed from the DB.
+   B2 and Supabase files stay in their buckets; we only drop the
+   Firebase pointer. Bucket cleanup is manual or scheduled.
+   ============================================================ */
 export async function deleteVideoSource(ctx, vid) {
   const v = ctx.state?.videos?.[vid];
   const backend = v?.srcBackend || 'firebase';
@@ -264,9 +332,17 @@ export async function deleteVideoSource(ctx, vid) {
   }
 }
 
+/* ============================================================
+   EXPORTS FOR ADVANCED USE
+   ============================================================ */
 export const storageInternals = {
-  b2Upload, b2PlaybackUrl, b2KeyFor,
-  supabaseUpload, supabasePublicUrl,
-  firebaseUpload, firebaseRead, firebaseDelete,
+  b2Upload,
+  b2PlaybackUrl,
+  b2KeyFor,
+  supabaseUpload,
+  supabasePublicUrl,
+  firebaseUpload,
+  firebaseRead,
+  firebaseDelete,
   fileToDataURL
 };

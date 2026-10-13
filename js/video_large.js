@@ -1,12 +1,13 @@
 /* ============================================================
    PIXELTube — video_large.js
-   Standard horizontal watch page, comments, playlist save menu.
-   Includes like, dislike, subscribe, share, report, and admin delete.
+   Watch page for Longs at #/watch/{vid}.
+   Includes like, dislike, subscribe, save-to-playlist, share,
+   report, admin/owner delete, comments, and up-next sidebar.
    ============================================================ */
 import { esc, fmt, timeAgo, avatarHTML, thumbHTML, initial } from './helpers.js';
 
 /* ============================================================
-   WATCH PAGE — one Long per page at #/watch/{vid}
+   WATCH PAGE
    ============================================================ */
 export function viewWatch(ctx, vid) {
   const {
@@ -20,14 +21,14 @@ export function viewWatch(ctx, vid) {
   const v = state.videos[vid];
   if (!v) {
     return emptyState('🚫', 'Video not found', 'It may have been removed.',
-      `<a class="btn-ghost" href="#/">Go home</a>`);
+      `<a class="btn-ghost" href="#/">Go to Feed</a>`);
   }
 
   const c = chanOf(vid);
-  const liked    = isLiked(vid);
-  const disliked = isDisliked(vid);
-  const subbed   = isSubbed(c.id);
-  const isMine   = PIXLECT.user && v.createdBy === PIXLECT.user.uid;
+  const liked     = isLiked(vid);
+  const disliked  = isDisliked(vid);
+  const subbed    = isSubbed(c.id);
+  const isMine    = PIXLECT.user && v.createdBy === PIXLECT.user.uid;
   const canDelete = isMine || isAdmin();
   const canReport = PIXLECT.user && !isMine;
 
@@ -85,7 +86,7 @@ export function viewWatch(ctx, vid) {
          Save
        </button>`;
 
-  /* ---- Report button (only when signed in and not the owner) ---- */
+  /* ---- Report (only if signed in and not the owner) ---- */
   const reportBtn = canReport
     ? `<button class="pill" data-action="report-video" data-video="${esc(vid)}" type="button">
          <svg viewBox="0 0 24 24"><path d="M12 2L1 21h22zM13 18h-2v-2h2zm0-4h-2V9h2z"/></svg>
@@ -93,7 +94,7 @@ export function viewWatch(ctx, vid) {
        </button>`
     : '';
 
-  /* ---- Delete button (owner or admin) ---- */
+  /* ---- Delete (owner or admin) ---- */
   const deleteBtn = canDelete
     ? `<button class="pill" data-action="del-video" data-video="${esc(vid)}" type="button" style="color:var(--accent)">
          <svg viewBox="0 0 24 24"><path d="M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6zM19 4h-3.5l-1-1h-5l-1 1H5v2h14z"/></svg>
@@ -105,6 +106,7 @@ export function viewWatch(ctx, vid) {
     ? `<span style="display:inline-flex;align-items:center;gap:4px;margin-left:8px;font-size:10.5px;font-weight:800;letter-spacing:.5px;color:var(--warn);background:rgba(251,191,36,.12);padding:3px 8px;border-radius:99px;border:1px solid rgba(251,191,36,.35)">ADMIN</span>`
     : '';
 
+  /* ---- Emergency storage note in stats line ---- */
   const emergencyTag = (v.srcBackend === 'backup' || v.srcBackend === 'url-backup')
     ? ' · <span style="color:var(--warn)">emergency storage</span>'
     : '';

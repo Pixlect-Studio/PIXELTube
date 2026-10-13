@@ -2,7 +2,6 @@
    PIXELTube — video_mini.js
    Vertical TikTok-style Mini viewer + paginated Minis feed.
    Audio is on by default. Feed loads 5 at a time as you scroll.
-   Includes like, dislike, subscribe, share, report, and admin delete.
    ============================================================ */
 import { esc, fmt, avatarHTML, thumbHTML } from './helpers.js';
 
@@ -16,16 +15,25 @@ let scrollListenerAttached = false;
 
 /* ============================================================
    MINI VIEWER — one Mini per screen at #/mini/{vid}
+   Full list rendered; user can swipe/scroll between them.
    ============================================================ */
 export function viewMiniViewer(ctx, currentVid) {
-  const { minisSorted, chanOf, emptyState, PIXLECT, isAdmin } = ctx;
+  const { minisSorted, emptyState } = ctx;
   const list = minisSorted();
   if (!list.length) {
     return emptyState('⚡', 'Mini not found', 'It may have been removed.',
       `<a class="btn-ghost" href="#/minis">Back to Minis</a>`);
   }
 
-  return list.map(v => miniSectionHTML(v, ctx, { viewerMode: true })).join('');
+  /* Order so the requested video is first, then the rest follow in feed order.
+     That way the close button always returns to a sensible place, and
+     scrolling up/down shows neighbors. */
+  const exists = list.some(v => v.id === currentVid);
+  const ordered = exists
+    ? [list.find(v => v.id === currentVid), ...list.filter(v => v.id !== currentVid)]
+    : list;
+
+  return ordered.map(v => miniSectionHTML(v, ctx, { viewerMode: true })).join('');
 }
 
 /* ============================================================
@@ -78,8 +86,6 @@ function miniSectionHTML(v, ctx, opts = {}) {
 
   const isMine = PIXLECT.user && v.createdBy === PIXLECT.user.uid;
   const canDelete = isMine || isAdmin();
-
-  /* Don't let users report their own videos */
   const canReport = PIXLECT.user && !isMine;
 
   return `
@@ -162,6 +168,7 @@ function attachMinisLoader(ctx) {
 
   if (scrollListenerAttached) {
     main.removeEventListener('scroll', scrollListenerAttached);
+    scrollListenerAttached = false;
   }
 
   const onScroll = () => {
@@ -192,7 +199,9 @@ function attachMinisLoader(ctx) {
     }
 
     /* Resolve video sources and start observing the new sections */
-    ctx.hydrateVideosInView(document);
+    if (typeof ctx.hydrateVideosInView === 'function') {
+      ctx.hydrateVideosInView(document);
+    }
     setupMinis(ctx);
 
     loadingBatch = false;
@@ -206,8 +215,9 @@ function attachMinisLoader(ctx) {
 }
 
 /* ============================================================
-   AUTOPLAY — play whichever Mini is in view, pause the rest
-   Audio is ON by default. Falls back to muted if blocked.
+   AUTOPLAY — play whichever Mini is in view, pause the rest.
+   Audio is ON by default. Falls back to muted if the browser
+   blocks autoplay-with-sound.
    ============================================================ */
 export function setupMinis(ctx) {
   const { registerView } = ctx;
