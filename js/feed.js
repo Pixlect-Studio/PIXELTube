@@ -1,35 +1,17 @@
 /* ============================================================
    PIXELTube — feed.js
-   Home, personalized shelf, search, Subs, Liked, Playlists.
+   Feed (search-history-ranked), Search, Subs, Liked, Playlists.
    ============================================================ */
-import { esc, fmt, timeAgo, avatarHTML, thumbHTML, initial } from './helpers.js';
+import {
+  esc, fmt, timeAgo, avatarHTML, thumbHTML, initial,
+  getSearchHistory, pushSearchHistory, clearSearchHistory, hasSearchHistory
+} from './helpers.js';
 
 /* ============================================================
-   SEARCH HISTORY — persisted in localStorage
-   Each entry: { q, ts }
+   TOKEN RANKING — used by Feed and search scoring
    ============================================================ */
-const HISTORY_KEY = 'pixeltube_search_history';
 const HISTORY_MAX = 20;
 
-function getSearchHistory() {
-  try {
-    const raw = localStorage.getItem(HISTORY_KEY);
-    const arr = raw ? JSON.parse(raw) : [];
-    return Array.isArray(arr) ? arr : [];
-  } catch (_) { return []; }
-}
-function pushSearchHistory(q) {
-  q = String(q || '').trim().toLowerCase();
-  if (!q || q.length < 2) return;
-  const hist = getSearchHistory().filter(h => h.q !== q);
-  hist.unshift({ q, ts: Date.now() });
-  try { localStorage.setItem(HISTORY_KEY, JSON.stringify(hist.slice(0, HISTORY_MAX))); } catch (_) {}
-}
-function clearSearchHistory() {
-  try { localStorage.removeItem(HISTORY_KEY); } catch (_) {}
-}
-
-/* Weighted tokens from recent history — the more recent, the heavier. */
 function recentTokens() {
   const hist = getSearchHistory();
   const map = new Map();
@@ -43,7 +25,6 @@ function recentTokens() {
   return map;
 }
 
-/* Score a video against a set of tokens (used for personalized shelf). */
 function scoreVideo(v, tokens, chanOf) {
   const title = (v.title || '').toLowerCase();
   const desc  = (v.desc || '').toLowerCase();
@@ -54,15 +35,13 @@ function scoreVideo(v, tokens, chanOf) {
     if (desc.includes(tok))  score += 3 * w;
     if (chan.includes(tok))  score += 4 * w;
   });
-  // Small boost for recency so the shelf doesn't look identical forever
   const ageDays = (Date.now() - (v.createdAt || 0)) / 86400000;
   score += Math.max(0, 3 - ageDays * 0.1);
   return score;
 }
 
 /* ============================================================
-   SEARCH — matches title, description, and channel name
-   Returns { videos, channels }
+   SEARCH — matches title, desc, channel name/handle
    ============================================================ */
 function searchAll(query, ctx) {
   const { state, chanOf, videosSorted } = ctx;
@@ -70,7 +49,6 @@ function searchAll(query, ctx) {
   if (!q) return { videos: [], channels: [] };
 
   const tokens = q.split(/\s+/).filter(Boolean);
-
   const matchesText = (txt) => {
     if (!txt) return false;
     const t = String(txt).toLowerCase();
@@ -85,11 +63,8 @@ function searchAll(query, ctx) {
   const channels = Object.values(state.channels).filter(c => {
     return matchesText(c.name) || matchesText(c.handle);
   });
+  channels.sort((a, b) => (Number(b.subs) || 0) - (Number(a.subs) || 0));
 
-  // Rank channels by subscriber count
-  channels.sort((a, b) => (b.subs || 0) - (a.subs || 0));
-
-  // Rank videos by a simple relevance score
   const score = (v) => {
     const c = chanOf(v.id);
     let s = 0;
@@ -111,7 +86,7 @@ function searchAll(query, ctx) {
 }
 
 /* ============================================================
-   CHANNEL SEARCH RESULT CARD
+   CHANNEL CARD — used in search results
    ============================================================ */
 function channelCardHTML(c, ctx) {
   const { subsOf, isSubbed } = ctx;
@@ -130,18 +105,16 @@ function channelCardHTML(c, ctx) {
 }
 
 /* ============================================================
-   HOME PAGE
+   FEED — replaces the old Home grid
+   Shows only videos matching your search history.
+   Empty state if you've never searched.
    ============================================================ */
-export function viewHome(ctx) {
-  const { state, chanOf, videosSorted, longsSorted, minisSorted,
-          cardHTML, shortCardHTML, emptyState, hasChannel, PIXLECT } = ctx;
-
-  const all = videosSorted();
-  const longs = longsSorted();
-  const minis = minisSorted();
+export function viewFeed(ctx) {
+  const { state, chanOf, videosSorted, cardHTML, shortCardHTML,
+          emptyState, hasChannel, PIXLECT } = ctx;
 
   /* ---- Search mode ---- */
-  if (state.search) {
+  if (state.search && state.search.trim()) {
     const { videos, channels } = searchAll(state.search, ctx);
 
     if (!videos.length && !channels.length) {
@@ -175,69 +148,80 @@ export function viewHome(ctx) {
     `;
   }
 
-  /* ---- Empty app ---- */
-  if (!all.length) {
-    return emptyState('🎬', 'No videos yet',
-      'PIXELTube is empty. Be the first to upload a video and start building the catalog.',
-      PIXLECT.user
-        ? (hasChannel()
-            ? `<a class="btn-ghost" href="#/create">Upload a video</a>`
-            : `<button class="btn-primary" id="emptyCreateChannel" type="button">Create your PIXELChannel</button>`)
-        : `<button class="btn-primary" onclick="window.dispatchEvent(new Event('pixeltube:signin'))" type="button">Sign in with PIXLECT</button>`);
+  /* ---- No search history → empty state ---- */
+  if (!hasSearchHistory()) {
+    return `
+      <div class="empty" style="padding:120px 24px">
+        <div class="big" style="font-size:56px">🔍</div>
+        <h2 style="font-size:22px;margin-bottom:10px">Search To Find Videos Here</h2>
+        <p style="max-width:420px">
+          The Feed is built from what you search for. Try searching for
+          <b style="color:var(--text)">Minecraft</b>,
+          <b style="color:var(--text)">music</b>, or
+          <b style="color:var(--text)">vlog</b> —
+          then come back here and you'll see videos matching your interests.
+        </p>
+      </div>`;
   }
 
-  /* ---- Personalized shelf (based on search history) ---- */
+  /* ---- Rank by search history tokens ---- */
   const tokens = recentTokens();
-  let forYou = [];
-  if (tokens.size > 0) {
-    const scored = all
-      .map(v => ({ v, s: scoreVideo(v, tokens, chanOf) }))
-      .filter(x => x.s > 0)
-      .sort((a, b) => b.s - a.s)
-      .slice(0, 12)
-      .map(x => x.v);
-    forYou = scored;
+  const scored = videosSorted()
+    .map(v => ({ v, s: scoreVideo(v, tokens, chanOf) }))
+    .filter(x => x.s > 0)
+    .sort((a, b) => b.s - a.s);
+
+  /* Tokens exist but no video matched them */
+  if (!scored.length) {
+    const latest = getSearchHistory()[0]?.q || '';
+    return `
+      <div class="empty" style="padding:120px 24px">
+        <div class="big" style="font-size:56px">🎬</div>
+        <h2 style="font-size:22px;margin-bottom:10px">No videos match yet</h2>
+        <p style="max-width:420px">
+          We found your recent search${latest ? ` for <b style="color:var(--text)">"${esc(latest)}"</b>` : ''},
+          but nobody has uploaded anything matching it yet.
+          Try another search, or upload the first one yourself.
+        </p>
+        ${PIXLECT.user
+          ? (hasChannel()
+              ? `<a class="btn-ghost" href="#/create" style="margin-top:8px">Upload a video</a>`
+              : `<button class="btn-primary" id="emptyCreateChannel" type="button" style="margin-top:8px">Create your PIXELChannel</button>`)
+          : `<button class="btn-primary" onclick="window.dispatchEvent(new Event('pixeltube:signin'))" type="button" style="margin-top:8px">Sign in with PIXLECT</button>`}
+      </div>`;
   }
 
-  const forYouBlock = forYou.length ? `
-    <section class="for-you-shelf">
-      <div class="shelf-head">
-        <div class="icon"><svg viewBox="0 0 24 24"><path d="M12 2l2.4 7.4H22l-6 4.6 2.3 7.4-6.3-4.6L5.7 21l2.3-7.4-6-4.6h7.6z"/></svg></div>
-        <h2>For you</h2>
-        <button class="clear-hist" id="clearHistoryBtn" type="button">Clear history</button>
-      </div>
-      <div class="for-you-rail">
-        ${forYou.map(v => `
-          <a class="fy-card" href="#/watch/${esc(v.id)}">
-            <div class="t">${thumbHTML(v)}<span class="dur">${esc(v.dur)}</span></div>
-            <h4>${esc(v.title)}</h4>
-            <div class="sub">${esc(chanOf(v.id).name)} · ${fmt(v.views)} views</div>
-          </a>
-        `).join('')}
-      </div>
-    </section>` : '';
+  /* ---- Show the top matches ---- */
+  const topVideos = scored.slice(0, 40).map(x => x.v);
+  const longs = topVideos.filter(v => v.kind !== 'mini');
+  const minis = topVideos.filter(v => v.kind === 'mini');
+  const totalMatched = scored.length;
 
-  /* ---- Shorts shelf ---- */
-  const shortsShelf = minis.length ? `
+  const longsBlock = longs.length
+    ? `<div class="grid">${longs.map(cardHTML).join('')}</div>`
+    : '';
+
+  const minisShelf = minis.length ? `
     <section class="shorts-shelf">
       <div class="shelf-head">
         <div class="icon"><svg viewBox="0 0 24 24"><path d="M13 2L4.5 13H11l-1 9L18.5 11H12z"/></svg></div>
-        <h2>Minis</h2>
+        <h2>Minis for you</h2>
         <a href="#/minis" style="margin-left:auto;font-size:13px;color:var(--muted);font-weight:700">View all →</a>
       </div>
       <div class="shorts-rail">${minis.slice(0, 12).map(shortCardHTML).join('')}</div>
     </section>` : '';
 
   return `
-    ${forYouBlock}
-    ${shortsShelf}
     <div class="page-head">
-      <h1>Home</h1>
-      <p>${longs.length} video${longs.length === 1 ? '' : 's'}</p>
+      <h1>Feed</h1>
+      <p>${totalMatched} video${totalMatched === 1 ? '' : 's'} based on your searches</p>
+      <button id="clearHistoryBtn" type="button"
+              style="margin-left:auto;font-size:12.5px;color:var(--muted);font-weight:700;padding:6px 12px;border-radius:99px;border:1px solid var(--line);transition:.15s">
+        Clear search history
+      </button>
     </div>
-    ${longs.length
-      ? `<div class="grid">${longs.map(cardHTML).join('')}</div>`
-      : `<div class="empty" style="padding:50px 24px"><p style="margin:0">No Longs yet — the Minis are above ☝️</p></div>`}
+    ${minisShelf}
+    ${longsBlock}
   `;
 }
 
@@ -289,7 +273,7 @@ export function viewLiked(ctx) {
    PLAYLISTS
    ============================================================ */
 export function viewPlaylists(ctx) {
-  const { playlistsOfUser, playlistVideos, esc, emptyState, PIXLECT } = ctx;
+  const { playlistsOfUser, playlistVideos, esc, timeAgo, emptyState, PIXLECT } = ctx;
   if (!PIXLECT.user) {
     return emptyState('🎵', 'Sign in to use playlists',
       'Playlists let you group videos and watch them in sequence.',
@@ -325,7 +309,8 @@ export function viewPlaylists(ctx) {
    PLAYLIST DETAIL
    ============================================================ */
 export function viewPlaylist(ctx) {
-  const { state, route, playlistVideos, chanOf, esc, fmt, thumbHTML, emptyState, PIXLECT } = ctx;
+  const { state, route, playlistVideos, chanOf, esc, fmt,
+          thumbHTML, emptyState, PIXLECT } = ctx;
   const pid = route[1];
   const pl = state.playlists[pid];
   if (!pl) return emptyState('🚫', 'Playlist not found', '', `<a class="btn-ghost" href="#/playlists">Back to playlists</a>`);
@@ -363,7 +348,7 @@ export function viewPlaylist(ctx) {
 }
 
 /* ============================================================
-   PUBLIC: hook into the search input
+   SEARCH INPUT WIRING
    ============================================================ */
 export function wireSearchInput(ctx) {
   const { state, render } = ctx;
@@ -395,7 +380,7 @@ export function wireSearchInput(ctx) {
 }
 
 /* ============================================================
-   PUBLIC: hook the "Clear history" button on the For-you shelf
+   CLEAR HISTORY BUTTON
    ============================================================ */
 export function wireClearHistory(ctx) {
   document.addEventListener('click', (e) => {

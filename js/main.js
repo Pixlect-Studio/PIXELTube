@@ -7,16 +7,19 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   $, $$, esc, fmt, fmtBytes, timeAgo, initial,
   avatarHTML, thumbHTML, captureThumbnailFromFile, resizeImageFile,
-  parseDuration
+  parseDuration, getSearchHistory, pushSearchHistory, clearSearchHistory,
+  hasSearchHistory
 } from './helpers.js';
 
+import * as storage from './storage.js';
+
 import {
-  viewHome, viewSubs, viewLiked, viewPlaylists, viewPlaylist,
+  viewFeed, viewSubs, viewLiked, viewPlaylists, viewPlaylist,
   wireSearchInput, wireClearHistory
 } from './feed.js';
 
 import {
-  viewMiniViewer, viewMinis, setupMinis
+  viewMiniViewer, viewMinis, setupMinis, resetMinisPagination
 } from './video_mini.js';
 
 import {
@@ -28,7 +31,7 @@ import {
 } from './channel.js';
 
 /* ============================================================
-   FIREBASE — PRIMARY
+   FIREBASE — PRIMARY + BACKUP
    ============================================================ */
 const FIREBASE_PRIMARY = {
   apiKey: "AIzaSyBLc2W7w4F0XSnsNlHbmlaSyM982Ha2bhM",
@@ -40,9 +43,6 @@ const FIREBASE_PRIMARY = {
   appId: "1:899632202736:web:3b6de3d2e312bd6d6b5335"
 };
 
-/* ============================================================
-   FIREBASE — BACKUP (Shorts failover)
-   ============================================================ */
 const FIREBASE_BACKUP = {
   apiKey: "AIzaSyDrhgWrgdhGb4z3w91bOXDb-LWlLYDEw7A",
   authDomain: "mass-control.firebaseapp.com",
@@ -54,7 +54,7 @@ const FIREBASE_BACKUP = {
 };
 
 /* ============================================================
-   SUPABASE — PRIMARY + BACKUP (Longs)
+   SUPABASE — primary + backup
    ============================================================ */
 const SUPABASE_PRIMARY = {
   url: 'https://finuvmxyymhfvmscmgac.supabase.co',
@@ -64,8 +64,6 @@ const SUPABASE_BACKUP = {
   url: 'https://xyxpppfvxlmhhhzgxhoz.supabase.co',
   key: 'sb_publishable_k8tOw0gS2vAmGygtu8nMMw_FhUXSd_I'
 };
-
-const SUPABASE_BUCKET = 'PIXELTUBE_VIDEOS';
 
 const MAX_LONG_BYTES   = 50 * 1024 * 1024;
 const MAX_MINI_BYTES   = 8  * 1024 * 1024;
@@ -77,11 +75,9 @@ let supaPrimary = null;
 let supaBackup  = null;
 try {
   supaPrimary = createClient(SUPABASE_PRIMARY.url, SUPABASE_PRIMARY.key, { auth: { persistSession: false } });
-  console.log('[main.js] Supabase primary ready');
 } catch (e) { console.warn('[main.js] Supabase primary failed:', e); }
 try {
   supaBackup = createClient(SUPABASE_BACKUP.url, SUPABASE_BACKUP.key, { auth: { persistSession: false } });
-  console.log('[main.js] Supabase backup ready');
 } catch (e) { console.warn('[main.js] Supabase backup failed:', e); }
 
 /* ============================================================
@@ -103,7 +99,7 @@ try {
    ADMINS
    ============================================================ */
 const ADMIN_USERNAMES = ['admin14', 'DASHORTSGOD', 'aaraiz.adnan2020'];
-const ADMIN_UIDS = ['dSs1Y55uKrcCeaXYLOqI2yco4HL2'];
+const ADMIN_UIDS      = ['dSs1Y55uKrcCeaXYLOqI2yco4HL2'];
 function isAdmin() {
   if (!PIXLECT.user) return false;
   return ADMIN_USERNAMES.includes(PIXLECT.user.username)
@@ -199,12 +195,16 @@ let dbBackup = null;
 let localDB = null;
 let lastData = null;
 let commentsUnsub = null;
-const srcCache = {};
 
 /* ============================================================
    DERIVED HELPERS
    ============================================================ */
-const subsOf     = cid => (state.channels[cid]?.subs) || 0;
+const subsOf = cid => {
+  const ch = state.channels[cid];
+  if (!ch) return 0;
+  const n = Number(ch.subs);
+  return Number.isFinite(n) && n >= 0 ? n : 0;
+};
 const likesOf    = vid => (state.videos[vid]?.likes) || 0;
 const dislikesOf = vid => (state.videos[vid]?.dislikes) || 0;
 const viewsOf    = vid => (state.videos[vid]?.views) || 0;
@@ -355,8 +355,9 @@ async function saveChannel(cid, data) {
     color: data.color || existing.color || (PIXLECT.user.icon?.bg || '#38bdf8'),
     avatar: data.avatar !== undefined ? data.avatar : (existing.avatar || ''),
     banner: data.banner !== undefined ? data.banner : (existing.banner || ''),
-    subs: existing.subs || 0,
+    subs: Number.isFinite(Number(existing.subs)) ? Number(existing.subs) : 0,
     ownerUid: PIXLECT.user.uid,
+    ownerUsername: PIXLECT.user.username,
     createdAt: existing.createdAt || Date.now()
   };
   if (state.mode === 'firebase' && db) {
@@ -426,7 +427,6 @@ async function boot() {
     try {
       const app2 = initializeApp(FIREBASE_BACKUP, 'backup');
       dbBackup = getDatabase(app2);
-      console.log('[main.js] Backup Firebase ready');
     } catch (e) { console.warn('[main.js] Backup Firebase init failed:', e); }
 
     state.mode = 'firebase';
@@ -484,6 +484,7 @@ function applyData(d) {
   state.channels  = d.channels  || {};
   state.playlists = d.playlists || {};
   state.users     = d.users     || {};
+
   const u = (d.users && d.users[state.uid]) || {};
   state.subs     = u.subs     || {};
   state.likes    = u.likes    || {};
@@ -514,7 +515,6 @@ async function migrateUserChannels() {
   if (idx[p]) return;
   await addChannelToIndex(p);
   if (!u.activeChannel) await setActiveChannel(p);
-  console.log('[main.js] migrated primary channel into users index');
 }
 
 function reloadUserScopedData() {
@@ -637,68 +637,27 @@ async function registerView(vid) {
 }
 
 /* ============================================================
-   SHORTS FAILOVER
+   VIDEO SOURCE — thin wrappers around storage.js
    ============================================================ */
-async function writeShortSrc(vid, dataUrl) {
-  if (db) {
-    try {
-      await set(ref(db, `pixeltube/videoSrc/${vid}`), dataUrl);
-      return 'primary';
-    } catch (e) {
-      console.warn('[main.js] Primary Short write failed:', e?.message || e);
-      showStorageAlert('Primary Firebase is full. New Shorts are being saved to emergency storage. Please review your uploads and delete what you no longer need.');
-    }
-  }
-  if (dbBackup) {
-    try {
-      await set(ref(dbBackup, `pixeltube/videoSrc/${vid}`), dataUrl);
-      return 'backup';
-    } catch (e) { console.error('[main.js] Backup Short write also failed:', e?.message || e); }
-  }
-  throw new Error('Both Firebase backends rejected the write');
-}
-
-async function fetchVideoSrc(vid) {
-  if (srcCache[vid] !== undefined) return srcCache[vid];
-  const v = state.videos[vid];
-  const hint = v?.srcBackend;
-
-  async function tryPrimary() {
-    if (!db) return '';
-    try { return (await get(ref(db, `pixeltube/videoSrc/${vid}`))).val() || ''; }
-    catch (_) { return ''; }
-  }
-  async function tryBackup() {
-    if (!dbBackup) return '';
-    try { return (await get(ref(dbBackup, `pixeltube/videoSrc/${vid}`))).val() || ''; }
-    catch (_) { return ''; }
-  }
-
-  let src = '';
-  if (state.mode === 'firebase') {
-    if (hint === 'backup')       src = await tryBackup() || await tryPrimary();
-    else if (hint === 'primary') src = await tryPrimary() || await tryBackup();
-    else                          src = await tryPrimary() || await tryBackup();
-  } else if (localDB) {
-    src = (localDB.videoSrc && localDB.videoSrc[vid]) || '';
-  }
-
-  srcCache[vid] = src;
-  return src;
-}
-
 async function hydrateVideosInView(root) {
   const vids = $$('video[data-vid]', root || document);
   await Promise.all(vids.map(async (v) => {
     const vid = v.dataset.vid;
     if (v.dataset.hydrated === '1') return;
     v.dataset.hydrated = '1';
-    const src = await fetchVideoSrc(vid);
-    if (src) {
-      v.src = src;
-      const loading = v.parentElement.querySelector('.loading');
-      if (loading) loading.remove();
-    } else {
+    try {
+      const url = await storage.resolvePlaybackUrl(CTX, vid);
+      if (url) {
+        v.src = url;
+        const loading = v.parentElement.querySelector('.loading');
+        if (loading) loading.remove();
+      } else {
+        const loading = v.parentElement.querySelector('.loading');
+        if (loading) loading.textContent = 'Video source unavailable';
+        v.remove();
+      }
+    } catch (e) {
+      console.warn('[main.js] hydrate failed for', vid, e);
       const loading = v.parentElement.querySelector('.loading');
       if (loading) loading.textContent = 'Video source unavailable';
       v.remove();
@@ -707,59 +666,7 @@ async function hydrateVideosInView(root) {
 }
 
 /* ============================================================
-   LONGS FAILOVER
-   ============================================================ */
-async function uploadLongToSupabase(file, vid) {
-  const ext = (file.name.split('.').pop() || 'mp4').toLowerCase();
-  const path = `${PIXLECT.user.uid}/${vid}.${ext}`;
-
-  if (supaPrimary) {
-    try {
-      const { error } = await supaPrimary.storage
-        .from(SUPABASE_BUCKET)
-        .upload(path, file, {
-          cacheControl: '3600',
-          upsert: false,
-          contentType: file.type || 'video/mp4'
-        });
-      if (!error) {
-        const { data: pub } = supaPrimary.storage.from(SUPABASE_BUCKET).getPublicUrl(path);
-        if (pub?.publicUrl) return { url: pub.publicUrl, backend: 'url' };
-      } else {
-        console.warn('[main.js] Primary Supabase upload error:', error.message);
-      }
-    } catch (e) {
-      console.warn('[main.js] Primary Supabase threw:', e?.message || e);
-    }
-  }
-
-  if (supaBackup) {
-    showStorageAlert('Primary video storage is full. New Longs are being saved to emergency storage. Please review your uploads and delete what you no longer need.');
-    try {
-      const { error } = await supaBackup.storage
-        .from(SUPABASE_BUCKET)
-        .upload(path, file, {
-          cacheControl: '3600',
-          upsert: false,
-          contentType: file.type || 'video/mp4'
-        });
-      if (error) {
-        console.error('[main.js] Backup Supabase upload FAILED:', error.message);
-        throw new Error(error.message);
-      }
-      const { data: pub } = supaBackup.storage.from(SUPABASE_BUCKET).getPublicUrl(path);
-      if (!pub?.publicUrl) throw new Error('Could not get public URL from backup');
-      return { url: pub.publicUrl, backend: 'url-backup' };
-    } catch (e) {
-      throw new Error('Both Supabase backends rejected the upload: ' + (e?.message || e));
-    }
-  }
-
-  throw new Error('No Supabase backend available');
-}
-
-/* ============================================================
-   CREATE VIDEO — uses the ACTIVE channel
+   CREATE VIDEO
    ============================================================ */
 async function createVideo(payload) {
   if (!PIXLECT.user) { toast('Sign in to upload'); pixlectSignIn(); return null; }
@@ -768,29 +675,35 @@ async function createVideo(payload) {
 
   const cid = ch.id;
   const vid = 'v_' + Math.random().toString(36).slice(2, 10);
-  const isLong = payload.kind !== 'mini';
+  const kind = payload.kind === 'mini' ? 'mini' : 'long';
 
-  let storedSrc = payload.src;
+  let storedSrc = '';
   let srcBackend = 'url';
 
-  if (isLong && payload.file) {
-    const result = await uploadLongToSupabase(payload.file, vid);
-    storedSrc = result.url;
-    srcBackend = result.backend;
-  } else if (!isLong && payload.src) {
-    try {
-      srcBackend = await writeShortSrc(vid, payload.src);
-    } catch (e) {
-      toast('Could not store the Short: ' + e.message);
+  try {
+    if (payload.file) {
+      const result = await storage.uploadVideo(CTX, payload.file, vid, kind);
+      storedSrc = result.storedSrc;
+      srcBackend = result.srcBackend;
+    } else if (payload.src) {
+      const result = storage.uploadFromUrl(payload.src);
+      storedSrc = result.storedSrc;
+      srcBackend = result.srcBackend;
+    } else {
+      toast('No video source provided');
       return null;
     }
+  } catch (e) {
+    console.error('[main.js] upload failed:', e);
+    toast('Upload failed: ' + (e?.message || e));
+    return null;
   }
 
   const meta = {
     id: vid,
     title: payload.title,
     channelId: cid,
-    kind: payload.kind,
+    kind,
     thumb: payload.thumb || '',
     dur: payload.dur || '0:00',
     views: 0,
@@ -805,8 +718,9 @@ async function createVideo(payload) {
   if (state.mode === 'firebase') {
     try {
       await set(ref(db, `pixeltube/videos/${vid}`), meta);
-      if (isLong) await set(ref(db, `pixeltube/videoSrc/${vid}`), storedSrc);
-      srcCache[vid] = isLong ? storedSrc : payload.src;
+      if (srcBackend !== 'firebase' && srcBackend !== 'firebase-backup') {
+        await set(ref(db, `pixeltube/videoSrc/${vid}`), storedSrc);
+      }
       return vid;
     } catch (e) {
       toast('Publish failed: ' + (e?.message || e));
@@ -817,7 +731,6 @@ async function createVideo(payload) {
     localDB.videos[vid] = meta;
     localDB.videoSrc = localDB.videoSrc || {};
     localDB.videoSrc[vid] = storedSrc;
-    srcCache[vid] = storedSrc;
     persistLocal();
     applyData(localDB);
     return vid;
@@ -831,9 +744,8 @@ async function deleteVideo(vid) {
   if (!isMine && !isAdmin()) { toast('You don\'t have permission to delete this'); return; }
   if (state.mode === 'firebase' && db) {
     try {
+      await storage.deleteVideoSource(CTX, vid);
       await remove(ref(db, `pixeltube/videos/${vid}`));
-      try { await remove(ref(db, `pixeltube/videoSrc/${vid}`)); } catch (_) {}
-      if (dbBackup) { try { await remove(ref(dbBackup, `pixeltube/videoSrc/${vid}`)); } catch (_) {} }
     } catch (e) { toast('Could not delete'); }
   } else if (localDB) {
     delete localDB.videos[vid];
@@ -968,9 +880,10 @@ function playlistVideos(pid) {
 const CTX = {
   state, PIXLECT, isAdmin,
   get db()      { return db; },
+  get dbBackup() { return dbBackup; },
   get localDB() { return localDB; },
   get supa()    { return supaPrimary; },
-  SUPABASE_BUCKET,
+  SUPABASE_BUCKET: 'PIXELTUBE_VIDEOS',
 
   subsOf, likesOf, dislikesOf, viewsOf, isSubbed, isLiked, isDisliked, chanOf,
   videosSorted, minisSorted, longsSorted,
@@ -986,7 +899,9 @@ const CTX = {
 
   pixlectSignIn, toast, openModal, closeModal,
   renderTopbar, renderSidebar, render,
-  persistLocal, applyData, remove, ref, set,
+  persistLocal, applyData, remove, ref, get, set,
+
+  hydrateVideosInView,
 
   get route() { return state.route; }
 };
@@ -1071,7 +986,7 @@ function renderTopbar() {
   const avHTML = ch && ch.avatar
     ? `<span class="pic"><img src="${esc(ch.avatar)}" alt=""></span>`
     : ch
-      ? `<span class="pic" style="background:${esc(ch.color)}">${esc(initial(ch.name))}</span>`
+      ? `<span class="pic" style="background:${esc(ch.color || '#38bdf8')}">${esc(initial(ch.name))}</span>`
       : `<span class="pic" style="background:${esc(u.icon?.bg || '#38bdf8')}">${esc(u.icon?.emoji || '👤')}</span>`;
 
   const channels = myChannels();
@@ -1087,7 +1002,7 @@ function renderTopbar() {
               style="display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:9px 12px;border-radius:9px;font-size:13px;font-weight:600;color:var(--text);${c.id === ch?.id ? 'background:var(--surface2)' : ''}">
         ${c.avatar
           ? `<span style="width:22px;height:22px;border-radius:50%;overflow:hidden;flex:none"><img src="${esc(c.avatar)}" alt="" style="width:100%;height:100%;object-fit:cover"></span>`
-          : `<span style="width:22px;height:22px;border-radius:50%;background:${esc(c.color)};display:grid;place-items:center;font-size:11px;color:#0a0e1a;font-weight:900;flex:none">${esc(initial(c.name))}</span>`}
+          : `<span style="width:22px;height:22px;border-radius:50%;background:${esc(c.color || '#38bdf8')};display:grid;place-items:center;font-size:11px;color:#0a0e1a;font-weight:900;flex:none">${esc(initial(c.name))}</span>`}
         <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.name)}</span>
         ${c.id === ch?.id ? '<span style="color:var(--accent);font-size:11px;font-weight:800">✓</span>' : ''}
       </button>
@@ -1182,7 +1097,7 @@ function promptCreateExtraChannel() {
       <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M19 6.4L17.6 5 12 10.6 6.4 5 5 6.4 10.6 12 5 17.6 6.4 19 12 13.4 17.6 19 19 17.6 13.4 12z"/></svg>
     </button>
     <h2>Add a channel</h2>
-    <p class="lede">You've made <b>${extraChannelCount()}</b> of ${MAX_EXTRA_CHANNELS} extra channels. Give this one a name, handle, and picture.</p>
+    <p class="lede">You've made <b>${extraChannelCount()}</b> of ${MAX_EXTRA_CHANNELS} extra channels.</p>
 
     <div class="avatar-preview">
       <div class="av" id="chAvPreview">N</div>
@@ -1293,8 +1208,8 @@ function promptCreateExtraChannel() {
    SIDEBAR
    ============================================================ */
 const ICONS = {
-  home:   '<svg viewBox="0 0 24 24"><path d="M12 3l9 8h-3v9h-5v-6h-2v6H6v-9H3z"/></svg>',
-  mini:   '<svg viewBox="0 0 24 24"><path d="M13 2L4.5 13H11l-1 9L18.5 11H12z"/></svg>',
+  feed:   '<svg viewBox="0 0 24 24"><path d="M4 6h16v2H4zm0 5h16v2H4zm0 5h10v2H4z"/></svg>',
+  minis:  '<svg viewBox="0 0 24 24"><path d="M13 2L4.5 13H11l-1 9L18.5 11H12z"/></svg>',
   subs:   '<svg viewBox="0 0 24 24"><path d="M4 6h16v2H4zm0 5h16v2H4zm0 5h10v2H4z"/><circle cx="18" cy="16" r="3"/></svg>',
   like:   '<svg viewBox="0 0 24 24"><path d="M2 20h3V9H2zm19.8-9.4c0-.9-.7-1.6-1.6-1.6h-5l.8-3.9.03-.3c0-.3-.1-.6-.3-.8L14.9 3 9.4 8.6c-.3.2-.4.6-.4.9V18c0 .9.7 1.6 1.6 1.6h7.2c.7 0 1.2-.4 1.4-1l2.4-5.7c.1-.2.1-.4.1-.6z"/></svg>',
   create: '<svg viewBox="0 0 24 24"><path d="M17 10.5V7a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3.5l4 4v-11z"/></svg>'
@@ -1304,17 +1219,16 @@ function renderSidebar() {
   const [page] = state.route;
   const subIds = Object.keys(state.subs);
   const likeCount = Object.keys(state.likes).length;
-  const miniCount = minisSorted().length;
-  const myPls = playlistsOfUser();
   const channels = myChannels();
   const active = myChannel();
+  const myPls = playlistsOfUser();
 
   const userBlock = PIXLECT.user ? `
     <div class="side-user">
       ${active
         ? (active.avatar
             ? `<span class="pic"><img src="${esc(active.avatar)}" alt=""></span>`
-            : `<span class="pic" style="background:${esc(active.color)}">${esc(initial(active.name))}</span>`)
+            : `<span class="pic" style="background:${esc(active.color || '#38bdf8')}">${esc(initial(active.name))}</span>`)
         : `<span class="pic" style="background:${esc(PIXLECT.user.icon?.bg || '#38bdf8')}">${esc(PIXLECT.user.icon?.emoji || '👤')}</span>`}
       <div class="t">
         <strong>${esc(active ? active.name : PIXLECT.user.username)}</strong>
@@ -1336,8 +1250,8 @@ function renderSidebar() {
   if (!sb) return;
 
   sb.innerHTML = `
-    <a class="nav ${page === 'home' ? 'active' : ''}" href="#/">${ICONS.home} Home</a>
-    <a class="nav ${page === 'minis' ? 'active' : ''}" href="#/minis">${ICONS.mini} Minis <span class="count">${miniCount || ''}</span></a>
+    <a class="nav ${page === 'home' ? 'active' : ''}" href="#/">${ICONS.feed} Feed</a>
+    <a class="nav ${page === 'minis' ? 'active' : ''}" href="#/minis">${ICONS.minis} Minis</a>
     <a class="nav ${page === 'subs' ? 'active' : ''}" href="#/subs">${ICONS.subs} Subscriptions <span class="count">${subIds.length || ''}</span></a>
     <a class="nav ${page === 'liked' ? 'active' : ''}" href="#/liked">${ICONS.like} Liked <span class="count">${likeCount || ''}</span></a>
     <a class="nav ${page === 'create' ? 'active' : ''}" href="#/create">${ICONS.create} Create</a>
@@ -1394,7 +1308,7 @@ function promptSwitchChannel() {
                 style="display:flex;align-items:center;gap:12px;width:100%;text-align:left;padding:12px;border-radius:12px;border:1px solid ${isActive ? 'var(--accent)' : 'var(--line)'};background:${isActive ? 'var(--surface2)' : 'var(--surface)'};transition:.15s;color:var(--text)">
           ${c.avatar
             ? `<span style="width:38px;height:38px;border-radius:50%;overflow:hidden;flex:none"><img src="${esc(c.avatar)}" alt="" style="width:100%;height:100%;object-fit:cover"></span>`
-            : `<span style="width:38px;height:38px;border-radius:50%;background:${esc(c.color)};display:grid;place-items:center;font-weight:900;color:#0a0e1a;font-size:16px;flex:none">${esc(initial(c.name))}</span>`}
+            : `<span style="width:38px;height:38px;border-radius:50%;background:${esc(c.color || '#38bdf8')};display:grid;place-items:center;font-weight:900;color:#0a0e1a;font-size:16px;flex:none">${esc(initial(c.name))}</span>`}
           <div style="flex:1;min-width:0">
             <strong style="display:block;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.name)}</strong>
             <small style="color:var(--muted);font-size:11.5px">${esc(c.handle || '')} · ${fmt(subsOf(c.id))} subs</small>
@@ -1434,7 +1348,7 @@ function render(force = false) {
 
   const [page, arg] = state.route;
 
-  if      (page === 'home')      view.innerHTML = viewHome(CTX);
+  if      (page === 'home')      view.innerHTML = viewFeed(CTX);
   else if (page === 'minis')     { view.innerHTML = viewMinis(CTX); setupMinis(CTX); hydrateVideosInView(view); }
   else if (page === 'mini')      {
     view.innerHTML = viewMiniViewer(CTX, arg);
@@ -1452,7 +1366,7 @@ function render(force = false) {
   else if (page === 'channel')   view.innerHTML = viewChannel(CTX, arg);
   else if (page === 'playlists') view.innerHTML = viewPlaylists(CTX);
   else if (page === 'playlist')  view.innerHTML = viewPlaylist(CTX);
-  else                           view.innerHTML = viewHome(CTX);
+  else                           view.innerHTML = viewFeed(CTX);
 
   syncDynamic();
 }
@@ -1506,7 +1420,7 @@ function viewCreate() {
   return `
     <div class="form-wrap">
       <h1>Upload to PIXELTube</h1>
-      <p class="lede">Publishing to <b>${esc(ch.name)}</b>. Longs go to Supabase, Shorts to Firebase.</p>
+      <p class="lede">Publishing to <b>${esc(ch.name)}</b>. Longs go to Backblaze B2, Shorts to Supabase.</p>
       <form id="createForm" autocomplete="off">
         ${channels.length > 1 ? `
         <div class="field">
@@ -1587,8 +1501,8 @@ function viewCreate() {
           <div class="field">
             <label for="f-kind">Type</label>
             <select id="f-kind">
-              <option value="long">Long (Supabase · up to 8 min / 50 MB)</option>
-              <option value="mini">Mini / Short (Firebase · up to 1 min / 8 MB)</option>
+              <option value="long">Long (B2 · up to 8 min / 50 MB)</option>
+              <option value="mini">Mini / Short (Supabase · up to 1 min / 8 MB)</option>
             </select>
           </div>
           <div class="field">
@@ -1618,7 +1532,6 @@ function setupCreateForm() {
   if (!form) return;
 
   const channelSelect = document.getElementById('f-channel');
-
   const tabs = $$('.source-tab[data-source]');
   const paneUpload = document.getElementById('paneUpload');
   const paneUrl = document.getElementById('paneUrl');
@@ -1672,14 +1585,14 @@ function setupCreateForm() {
     const lim = limitFor(kindSelect.value);
     if (pickedFile.size > lim.bytes) {
       sizeWarn.style.display = '';
-      sizeWarn.innerHTML = `⚠️ <b>${fmtBytes(pickedFile.size)}</b> is above the ${fmtBytes(lim.bytes)} limit for ${kindSelect.value === 'mini' ? 'Minis' : 'Longs'}.`;
+      sizeWarn.innerHTML = `⚠️ <b>${fmtBytes(pickedFile.size)}</b> is above the ${fmtBytes(lim.bytes)} limit.`;
       return false;
     }
     if (pickedDuration && pickedDuration > lim.seconds + 1) {
       const m = Math.floor(pickedDuration / 60);
       const s = Math.round(pickedDuration % 60);
       sizeWarn.style.display = '';
-      sizeWarn.innerHTML = `⚠️ Video is ${m}:${String(s).padStart(2, '0')} — the limit for ${kindSelect.value === 'mini' ? 'Minis' : 'Longs'} is ${Math.floor(lim.seconds / 60)} min.`;
+      sizeWarn.innerHTML = `⚠️ Video is ${m}:${String(s).padStart(2, '0')} — limit is ${Math.floor(lim.seconds / 60)} min.`;
       return false;
     }
     sizeWarn.style.display = 'none';
@@ -1733,7 +1646,7 @@ function setupCreateForm() {
         if (thumbMode === 'auto') updateThumbPreview();
       } else {
         autoThumbDataUrl = '';
-        autoNote.innerHTML = `<span style="color:var(--warn)">⚠️ Could not capture a frame. Pick an image instead.</span>`;
+        autoNote.innerHTML = `<span style="color:var(--warn)">⚠️ Could not capture a frame.</span>`;
         if (thumbMode === 'auto') updateThumbPreview();
       }
     });
@@ -1857,25 +1770,12 @@ function setupCreateForm() {
       file = pickedFile;
     }
 
-    if (file && kind === 'mini') {
-      btn.disabled = true;
-      btn.textContent = 'Encoding…';
-      src = await new Promise((resolve) => {
-        const r = new FileReader();
-        r.onload = () => resolve(r.result);
-        r.onerror = () => resolve('');
-        r.readAsDataURL(file);
-      });
-      if (!src) { toast('Could not read file'); btn.disabled = false; btn.textContent = 'Publish'; return; }
-    }
-
     const thumb = currentThumb();
     btn.disabled = true;
-    btn.textContent = kind === 'mini' ? 'Saving to Firebase…' : 'Uploading to Supabase…';
+    btn.textContent = kind === 'mini' ? 'Saving…' : 'Uploading…';
 
     const vid = await createVideo({
-      title, src, thumb, kind, dur, desc,
-      file: kind === 'mini' ? null : file
+      title, src, thumb, kind, dur, desc, file
     });
 
     if (vid) {
@@ -1894,7 +1794,6 @@ function setupCreateForm() {
 window.addEventListener('pixeltube:signin', pixlectSignIn);
 
 document.addEventListener('click', async (e) => {
-  // Channel switch (from menu, sidebar modal, or channel page)
   const sw = e.target.closest('[data-action="switch-channel"]');
   if (sw) {
     e.preventDefault();
@@ -1909,7 +1808,6 @@ document.addEventListener('click', async (e) => {
     return;
   }
 
-  // Channel page buttons
   if (e.target.id === 'makeActiveBtn') {
     const cid = e.target.dataset.cid;
     await setActiveChannel(cid);
@@ -1926,7 +1824,6 @@ document.addEventListener('click', async (e) => {
     return;
   }
   if (e.target.id === 'editChBtn') {
-    // active channel is already the one being viewed if we're here
     promptEditChannel(CTX);
     return;
   }
@@ -2002,6 +1899,7 @@ function parseRoute() {
 
 window.addEventListener('hashchange', () => {
   if (commentsUnsub) { commentsUnsub(); commentsUnsub = null; }
+  resetMinisPagination();
   state.route = parseRoute();
   document.body.classList.remove('nav-open');
   render(true);
