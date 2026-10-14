@@ -6,7 +6,6 @@
 <title>PIXELTube Studio</title>
 <link rel="icon" type="image/png" href="./logo.png" />
 <link rel="stylesheet" href="./css/styles.css" />
-<script src="https://cdn.jsdelivr.net/npm/tus-js-client@4.1.0/dist/tus.min.js"></script>
 <style>
   /* Studio-only overrides for the standalone page */
   body[data-page="creator"] .topbar       { display: none; }
@@ -14,7 +13,7 @@
   body[data-page="creator"] .sidebar      { display: none; }
   body[data-page="creator"] .shell        { padding-top: 0; }
 
-  /* Optional: a slim Studio-only top bar */
+  /* Slim Studio-only top bar */
   .studio-topbar {
     height: 52px; flex: none;
     display: flex; align-items: center; gap: 14px;
@@ -47,7 +46,7 @@
 </head>
 <body data-page="creator">
 
-<!-- Loading screen (same as index.html) -->
+<!-- Loading screen -->
 <div id="loader">
   <div class="inner">
     <img src="./logo.png" alt="PIXELTube" />
@@ -73,6 +72,7 @@
 <div id="toast"></div>
 <div id="modalRoot"></div>
 
-<script type="module" src="./js/main.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tus-js-client@4.1.0/dist/tus.min.js"></script>
+<script type="module" src="./js/main.js?v=6"></script>
 </body>
 </html>
