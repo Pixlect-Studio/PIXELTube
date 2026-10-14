@@ -12,6 +12,10 @@ import {
 } from './helpers.js';
 
 import * as storage from './storage.js';
+import {
+  offlineDownloads, isOfflineDownloaded, saveOfflineVideo,
+  removeOfflineVideo, offlinePlaybackSource, clearOfflinePlaybackUrls
+} from './offline.js';
 
 import {
   promptReportVideo, promptGuidelines,
@@ -530,6 +534,11 @@ function applyData(d) {
   lastData = d;
   state.videos    = d.videos    || {};
   state.channels  = d.channels  || {};
+  offlineDownloads().forEach(item => {
+    if (!item.video?.id) return;
+    if (!state.videos[item.video.id]) state.videos[item.video.id] = item.video;
+    if (item.channel?.id && !state.channels[item.channel.id]) state.channels[item.channel.id] = item.channel;
+  });
   state.playlists = d.playlists || {};
   state.users     = d.users     || {};
   state.reports   = d.reports   || {};
@@ -714,10 +723,8 @@ function playbackErrorMessage(url) {
   return 'Unable to play video';
 }
 
-async function attachPlaybackSource(video, url) {
-  if (!/\.m3u8(?:$|[?#])/i.test(url) ||
-      video.canPlayType('application/vnd.apple.mpegurl') ||
-      video.canPlayType('application/x-mpegURL')) {
+async function attachPlaybackSource(video, url, isHls = false) {
+  if (!isHls && !/\.m3u8(?:$|[?#])/i.test(url)) {
     video.src = url;
     return true;
   }
@@ -732,7 +739,19 @@ async function attachPlaybackSource(video, url) {
   }
 
   if (Hls?.isSupported()) {
-    const player = new Hls();
+    const player = new Hls({ capLevelToPlayerSize: false });
+    player.on(Hls.Events.MANIFEST_PARSED, () => {
+      if (!player.levels.length) return;
+      const highest = player.levels.reduce((bestIndex, level, index, levels) => {
+        const best = levels[bestIndex];
+        const pixels = (level.width || 0) * (level.height || 0);
+        const bestPixels = (best.width || 0) * (best.height || 0);
+        return pixels > bestPixels || (pixels === bestPixels && level.bitrate > best.bitrate)
+          ? index
+          : bestIndex;
+      }, 0);
+      player.currentLevel = highest;
+    });
     player.on(Hls.Events.ERROR, (_event, data) => {
       if (!data.fatal) return;
       console.error('[main.js] fatal HLS playback error:', data);
@@ -741,6 +760,12 @@ async function attachPlaybackSource(video, url) {
     });
     player.loadSource(url);
     player.attachMedia(video);
+    return true;
+  }
+
+  if (video.canPlayType('application/vnd.apple.mpegurl') ||
+      video.canPlayType('application/x-mpegURL')) {
+    video.src = url;
     return true;
   }
 
@@ -762,12 +787,18 @@ async function hydrateVideosInView(root) {
     if (v.dataset.hydrated === '1') return;
     v.dataset.hydrated = '1';
     try {
-      const url = await storage.resolvePlaybackUrl(CTX, vid);
+      let offlineSource = null;
+      try {
+        offlineSource = await offlinePlaybackSource(vid);
+      } catch (error) {
+        console.warn('[main.js] offline copy unavailable; trying the online source:', error);
+      }
+      const url = offlineSource?.url || await storage.resolvePlaybackUrl(CTX, vid);
       if (url) {
         v.addEventListener('error', () => {
           showPlaybackError(v, playbackErrorMessage(url));
         }, { once: true });
-        const attached = await attachPlaybackSource(v, url);
+        const attached = await attachPlaybackSource(v, url, offlineSource?.isHls || false);
         const loading = v.parentElement.querySelector('.loading');
         if (loading && attached) loading.remove();
       } else {
@@ -1118,7 +1149,6 @@ function renderTopbar() {
     $('#pixlectSignIn').onclick = pixlectSignIn;
     return;
   }
-
   const u = PIXLECT.user;
   const ch = myChannel();
   const displayName = ch ? ch.name : u.username;
@@ -1395,6 +1425,7 @@ function renderSidebar() {
     <a class="nav ${page === 'minis' ? 'active' : ''}" href="#/minis">${ICONS.minis} Minis</a>
     <a class="nav ${page === 'subs' ? 'active' : ''}" href="#/subs">${ICONS.subs} Subscriptions <span class="count">${subIds.length || ''}</span></a>
     <a class="nav ${page === 'liked' ? 'active' : ''}" href="#/liked">${ICONS.like} Liked <span class="count">${likeCount || ''}</span></a>
+    <a class="nav ${page === 'downloads' ? 'active' : ''}" href="#/downloads">↓ Downloads <span class="count">${offlineDownloads().length || ''}</span></a>
     <a class="nav ${page === 'create' ? 'active' : ''}" href="#/create">${ICONS.create} Create</a>
     ${PIXLECT.user && active ? `<a class="nav ${page === 'studio' ? 'active' : ''}" href="#/studio">Studio</a>` : ''}
     ${isAdmin() ? `<a class="nav ${page === 'admin' ? 'active' : ''}" href="#/admin">Admin</a>` : ''}
@@ -1505,6 +1536,7 @@ function render(force = false) {
   }
   else if (page === 'subs')      view.innerHTML = viewSubs(CTX);
   else if (page === 'liked')     view.innerHTML = viewLiked(CTX);
+  else if (page === 'downloads') view.innerHTML = viewDownloads(CTX);
   else if (page === 'create')    { view.innerHTML = viewCreate(); setupCreateForm(); }
   else if (page === 'watch')     { view.innerHTML = viewWatch(CTX, arg); subscribeComments(arg); setupCommentForm(CTX, arg); hydrateVideosInView(view); }
   else if (page === 'channel')   view.innerHTML = viewChannel(CTX, arg);
@@ -1739,6 +1771,23 @@ function viewLiked(ctx) {
   return `
     <div class="page-head"><h1>Liked videos</h1><p>${list.length} video${list.length === 1 ? '' : 's'}</p></div>
     ${videoTypeSections(list, cardHTML, shortCardHTML)}`;
+}
+
+function viewDownloads(ctx) {
+  const { emptyState, cardHTML } = ctx;
+  const downloads = offlineDownloads();
+  if (!downloads.length) {
+    return emptyState('⬇️', 'No offline downloads', 'Save a video from its watch page to view it offline.', '');
+  }
+  return `
+    <div class="page-head"><h1>Downloads</h1><p>${downloads.length} saved video${downloads.length === 1 ? '' : 's'} · 2 GB limit</p></div>
+    <div class="grid offline-grid">${downloads.map(item => {
+      const video = item.video;
+      if (!video?.id || !state.videos[video.id]) return '';
+      return `<div class="offline-item">${cardHTML(video)}
+        <button class="pill" data-action="offline-remove" data-video="${esc(video.id)}" type="button">Remove download</button>
+      </div>`;
+    }).join('')}</div>`;
 }
 
 function videoTypeSections(videos, cardHTML, shortCardHTML) {
@@ -1985,6 +2034,9 @@ function viewWatch(ctx, vid) {
           <svg viewBox="0 0 24 24"><path d="M14 9V5l7 7-7 7v-4.1C9.5 12.9 5.6 14.4 3 18c.5-4.5 2.9-8 11-9z"/></svg>
           Share
         </button>
+        <button class="pill" data-action="${isOfflineDownloaded(vid) ? 'offline-remove' : 'offline-save'}" data-video="${esc(vid)}" type="button">
+          ${isOfflineDownloaded(vid) ? 'Saved offline' : 'Download offline'}
+        </button>
         ${reportBtn}
         ${deleteBtn}
       </div>
@@ -2118,6 +2170,10 @@ function miniSectionHTML(v, ctx, viewerMode) {
           <button class="rail-btn" data-action="share" data-video="${esc(v.id)}" type="button">
             <span class="circ"><svg viewBox="0 0 24 24"><path d="M14 9V5l7 7-7 7v-4.1C9.5 12.9 5.6 14.4 3 18c.5-4.5 2.9-8 11-9z"/></svg></span>
           </button>
+          <button class="rail-btn" data-action="${isOfflineDownloaded(v.id) ? 'offline-remove' : 'offline-save'}" data-video="${esc(v.id)}" type="button" aria-label="${isOfflineDownloaded(v.id) ? 'Remove offline download' : 'Download offline'}">
+            <span class="circ">⬇</span>
+            <span class="lbl">${isOfflineDownloaded(v.id) ? 'Saved' : 'Download'}</span>
+          </button>
           ${canReport ? `
           <button class="rail-btn" data-action="report-video" data-video="${esc(v.id)}" type="button">
             <span class="circ"><svg viewBox="0 0 24 24"><path d="M12 2L1 21h22zM13 18h-2v-2h2zm0-4h-2V9h2z"/></svg></span>
@@ -2148,6 +2204,7 @@ function setupMinis(ctx) {
   miniObserver = new IntersectionObserver(entries => {
     entries.forEach(en => {
       const v = en.target;
+      if (!v.isConnected) return;
       if (en.isIntersecting && en.intersectionRatio > 0.6) {
         v.play().catch(() => {
           v.muted = true;
@@ -2630,6 +2687,39 @@ document.addEventListener('click', async (e) => {
     navigator.clipboard?.writeText(url).then(() => toast('Link copied'), () => toast(url));
     return;
   }
+  if (action === 'offline-save') {
+    e.preventDefault();
+    const previousContent = el.innerHTML;
+    el.disabled = true;
+    el.textContent = 'Saving…';
+    try {
+      const vid = el.dataset.video;
+      const sourceUrl = await storage.resolvePlaybackUrl(CTX, vid);
+      if (!sourceUrl) throw new Error('Video source is unavailable.');
+      await saveOfflineVideo(state.videos[vid], chanOf(vid), sourceUrl);
+      toast('Video saved for offline playback');
+      render(true);
+    } catch (error) {
+      console.error('[main.js] offline download failed:', error);
+      toast(error.message || 'Could not save this video offline');
+      el.disabled = false;
+      el.innerHTML = previousContent;
+    }
+    return;
+  }
+  if (action === 'offline-remove') {
+    e.preventDefault();
+    try {
+      await removeOfflineVideo(el.dataset.video);
+      applyData(lastData || {});
+      render(true);
+      toast('Offline download removed');
+    } catch (error) {
+      console.error('[main.js] could not remove offline download:', error);
+      toast('Could not remove offline download');
+    }
+    return;
+  }
   if (action === 'report-video') {
     e.preventDefault();
     promptReportVideo(CTX, el.dataset.video);
@@ -2773,6 +2863,7 @@ function parseRoute() {
 }
 
 window.addEventListener('hashchange', () => {
+  clearOfflinePlaybackUrls();
   if (commentsUnsub) { commentsUnsub(); commentsUnsub = null; }
   state.route = parseRoute();
   document.body.classList.remove('nav-open');
