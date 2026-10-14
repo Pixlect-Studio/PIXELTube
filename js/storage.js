@@ -16,6 +16,9 @@
    ============================================================ */
 import { loadEnv, getEnv } from './env.js';
 
+export const MAX_LONG_UPLOAD_BYTES = 100 * 1024 * 1024;
+export const MAX_MINI_UPLOAD_BYTES = 100 * 1024 * 1024;
+
 /* ============================================================
    CONFIG — populated from .env after loadEnv()
    ============================================================ */
@@ -222,6 +225,10 @@ async function readStoredSrc(ctx, vid) {
 export async function uploadVideo(ctx, file, vid, kind, onProgress) {
   const uid = ctx.PIXLECT?.user?.uid;
   if (!uid) throw new Error('Not signed in');
+  const maxBytes = kind === 'mini' ? MAX_MINI_UPLOAD_BYTES : MAX_LONG_UPLOAD_BYTES;
+  if (file.size > maxBytes) {
+    throw new Error(`${kind === 'mini' ? 'Mini' : 'Long'} uploads are limited to 100 MB.`);
+  }
 
   await ensureEnv();
 

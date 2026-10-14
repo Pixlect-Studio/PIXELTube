@@ -169,7 +169,7 @@ function viewStudioDashboard(ctx, ch) {
       <section class="studio-card">
         <h3>Channel analytics</h3>
         <div class="studio-big-stat">
-          <div class="n">${fmt(subs)}</div>
+          <div class="n" data-dyn="subcount-value" data-channel="${esc(ch.id)}">${fmt(subs)}</div>
           <div class="l">Current subscribers</div>
         </div>
         <div class="studio-stats-row" style="margin-top:16px">
@@ -369,7 +369,7 @@ function viewStudioSettings(ctx, ch) {
               : `<span class="studio-channel-pic" style="background:${esc(c.color || '#38bdf8')}">${esc(initial(c.name))}</span>`}
             <div style="flex:1;min-width:0;text-align:left">
               <div style="font-weight:700">${esc(c.name)}</div>
-              <div style="font-size:12px;color:var(--muted)">${esc(c.handle || '')} · ${fmt(ctx.subsOf(c.id))} subs</div>
+              <div style="font-size:12px;color:var(--muted)">${esc(c.handle || '')} · <span data-dyn="subcount-label" data-channel="${esc(c.id)}">${fmt(ctx.subsOf(c.id))} subs</span></div>
             </div>
             ${isActive ? '<span style="color:var(--accent);font-weight:800;font-size:12px">ACTIVE</span>' : ''}
           </button>`;
@@ -390,7 +390,7 @@ function viewStudioSettings(ctx, ch) {
           : `<span class="studio-channel-pic lg" style="background:${esc(ch.color || '#38bdf8')}">${esc(initial(ch.name))}</span>`}
         <div>
           <div style="font-size:18px;font-weight:800">${esc(ch.name)}</div>
-          <div style="color:var(--muted);font-size:13px">${esc(ch.handle || '')} · ${fmt(ctx.subsOf(ch.id))} subscribers</div>
+          <div style="color:var(--muted);font-size:13px">${esc(ch.handle || '')} · <span data-dyn="subcount-label" data-channel="${esc(ch.id)}">${fmt(ctx.subsOf(ch.id))} subscribers</span></div>
         </div>
       </div>
       <p class="studio-lede" style="margin-top:14px">

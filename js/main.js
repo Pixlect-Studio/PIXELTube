@@ -29,7 +29,7 @@ import { viewStudio } from './studio.js';
 import { viewPrivacy, viewTerms, viewGuidelines } from './legal.js';
 
 /* ============================================================
-   FIREBASE — MAIN (videos, channels, subs, likes, comments)
+   FIREBASE — MAIN (videos, channels, user subscriptions, likes, comments)
    ============================================================ */
 const FIREBASE_PRIMARY = {
   apiKey: "AIzaSyBLc2W7w4F0XSnsNlHbmlaSyM982Ha2bhM",
@@ -74,8 +74,8 @@ const SUPABASE_PRIMARY = {
   url: 'https://finuvmxyymhfvmscmgac.supabase.co',
   key: 'sb_publishable_UAbpVV0jSe2h6aPkbYEgtw_kWzaT7qt'
 };
-const MAX_LONG_BYTES   = 500 * 1024 * 1024;  // 500 MB
-const MAX_MINI_BYTES   = 100 * 1024 * 1024;  // 100 MB
+const MAX_LONG_BYTES   = storage.MAX_LONG_UPLOAD_BYTES;
+const MAX_MINI_BYTES   = storage.MAX_MINI_UPLOAD_BYTES;
 const MAX_LONG_SECONDS = 60 * 60;            // 60 min
 const MAX_MINI_SECONDS = 5 * 60;             // 5 min
 const MAX_EXTRA_CHANNELS = 5;
@@ -189,6 +189,7 @@ const state = {
   uid: PIXLECT.user ? ('pl_' + PIXLECT.user.uid) : getLocalUid(),
   mode: 'connecting',
   videos: {}, channels: {}, playlists: {}, subs: {}, likes: {}, dislikes: {},
+  subscriberCounts: {},
   users: {}, reports: {}, comments: {},
   search: '', route: ['home'],
   viewedThisSession: new Set(),
@@ -207,6 +208,11 @@ let commentsUnsub = null;
    DERIVED HELPERS
    ============================================================ */
 const subsOf = cid => {
+  const storedCount = state.subscriberCounts[cid];
+  if (storedCount !== undefined && storedCount !== null) {
+    const count = Number(storedCount);
+    if (Number.isFinite(count) && count >= 0) return count;
+  }
   const count = Number(state.channels[cid]?.subs);
   return Number.isFinite(count) && count >= 0 ? count : 0;
 };
@@ -284,13 +290,51 @@ function showStorageAlert(message) {
 }
 
 /* ============================================================
-   STATS — analytics writes to the pixquiz-5fd01 project
+   STATS — analytics and subscriber counts use the pixquiz-5fd01 project
    ============================================================ */
 async function statsRegisterView(vid) {
   if (!dbStats) return;
   try {
     await runTransaction(ref(dbStats, `pixeltube_stats/views/${vid}`), n => (Number(n) || 0) + 1);
   } catch (e) { console.warn('[stats] registerView failed', e?.message); }
+}
+
+const subscriberCountsSeeded = new Set();
+
+function watchSubscriberCounts() {
+  if (!dbStats) return;
+  onValue(ref(dbStats, 'pixeltube_stats/subscribers'), snap => {
+    state.subscriberCounts = snap.val() || {};
+    syncDynamic();
+  }, error => {
+    console.error('[stats] subscriber count read failed:', error);
+  });
+}
+
+async function seedSubscriberCounts(channels) {
+  if (!dbStats) return;
+  await Promise.all(Object.values(channels || {}).map(async channel => {
+    if (!channel?.id || subscriberCountsSeeded.has(channel.id)) return;
+    subscriberCountsSeeded.add(channel.id);
+    try {
+      await runTransaction(ref(dbStats, `pixeltube_stats/subscribers/${channel.id}`), count => {
+        if (count !== null) return count;
+        const legacyCount = Number(channel.subs);
+        return Number.isFinite(legacyCount) && legacyCount >= 0 ? legacyCount : 0;
+      });
+    } catch (error) {
+      subscriberCountsSeeded.delete(channel.id);
+      console.error(`[stats] could not initialize subscriber count for ${channel.id}:`, error);
+    }
+  }));
+}
+
+async function statsAdjustSubscriberCount(cid, delta) {
+  if (!dbStats) throw new Error('Subscriber count service is unavailable.');
+  const legacyCount = Number(state.channels[cid]?.subs);
+  const initialCount = Number.isFinite(legacyCount) && legacyCount >= 0 ? legacyCount : 0;
+  await runTransaction(ref(dbStats, `pixeltube_stats/subscribers/${cid}`), count =>
+    Math.max(0, (count === null ? initialCount : Number(count) || 0) + delta));
 }
 
 async function statsLogEvent(type, payload) {
@@ -478,6 +522,7 @@ async function boot() {
     try {
       const statsApp = initializeApp(FIREBASE_STATS, 'stats');
       dbStats = getDatabase(statsApp);
+      watchSubscriberCounts();
       console.log('[main.js] Stats Firebase ready');
     } catch (e) { console.warn('[main.js] Stats Firebase init failed:', e); }
 
@@ -534,6 +579,7 @@ function applyData(d) {
   lastData = d;
   state.videos    = d.videos    || {};
   state.channels  = d.channels  || {};
+  seedSubscriberCounts(state.channels);
   offlineDownloads().forEach(item => {
     if (!item.video?.id) return;
     if (!state.videos[item.video.id]) state.videos[item.video.id] = item.video;
@@ -596,13 +642,17 @@ async function toggleSub(cid) {
   if (!PIXLECT.user) { toast('Sign in with PIXLECT to subscribe'); pixlectSignIn(); return; }
   const on = isSubbed(cid), delta = on ? -1 : 1;
   if (state.mode === 'firebase') {
+    if (!dbStats) { toast('Subscriber count service is unavailable'); return; }
     try {
       const p = `pixeltube/users/${state.uid}/subs/${cid}`;
       if (on) await remove(ref(db, p)); else await set(ref(db, p), true);
-      await runTransaction(ref(db, `pixeltube/channels/${cid}/subs`),
-        n => Math.max(0, (Number(n) || 0) + delta));
+      await statsAdjustSubscriberCount(cid, delta);
       toast(on ? 'Unsubscribed' : 'Subscribed 🔔');
-    } catch (e) { toast('Could not update subscription'); }
+    } catch (e) {
+      console.error('[main.js] Could not update subscription:', e);
+      toast(e?.message || 'Could not update subscription');
+      return;
+    }
   } else {
     const u = localDB.users[state.uid] || (localDB.users[state.uid] = {});
     const s = u.subs || (u.subs = {});
@@ -1426,6 +1476,7 @@ function renderSidebar() {
     <a class="nav ${page === 'subs' ? 'active' : ''}" href="#/subs">${ICONS.subs} Subscriptions <span class="count">${subIds.length || ''}</span></a>
     <a class="nav ${page === 'liked' ? 'active' : ''}" href="#/liked">${ICONS.like} Liked <span class="count">${likeCount || ''}</span></a>
     <a class="nav ${page === 'downloads' ? 'active' : ''}" href="#/downloads">↓ Downloads <span class="count">${offlineDownloads().length || ''}</span></a>
+    <a class="nav pro-upgrade ${page === 'pro' ? 'active' : ''}" href="#/pro">✦ Upgrade</a>
     <a class="nav ${page === 'create' ? 'active' : ''}" href="#/create">${ICONS.create} Create</a>
     ${PIXLECT.user && active ? `<a class="nav ${page === 'studio' ? 'active' : ''}" href="#/studio">Studio</a>` : ''}
     ${isAdmin() ? `<a class="nav ${page === 'admin' ? 'active' : ''}" href="#/admin">Admin</a>` : ''}
@@ -1537,6 +1588,7 @@ function render(force = false) {
   else if (page === 'subs')      view.innerHTML = viewSubs(CTX);
   else if (page === 'liked')     view.innerHTML = viewLiked(CTX);
   else if (page === 'downloads') view.innerHTML = viewDownloads(CTX);
+  else if (page === 'pro')       view.innerHTML = viewPro();
   else if (page === 'create')    { view.innerHTML = viewCreate(); setupCreateForm(); }
   else if (page === 'watch')     { view.innerHTML = viewWatch(CTX, arg); subscribeComments(arg); setupCommentForm(CTX, arg); hydrateVideosInView(view); }
   else if (page === 'channel')   view.innerHTML = viewChannel(CTX, arg);
@@ -1574,6 +1626,11 @@ function syncDynamic() {
       el.textContent = on ? 'Subscribed' : 'Subscribe';
     } else if (t === 'subcount') {
       el.textContent = fmt(subsOf(el.dataset.channel)) + ' subscribers';
+    } else if (t === 'subcount-value') {
+      el.textContent = fmt(subsOf(el.dataset.channel));
+    } else if (t === 'subcount-label') {
+      const count = subsOf(el.dataset.channel);
+      el.textContent = `${fmt(count)} ${count === 1 ? 'subscriber' : 'subscribers'}`;
     } else if (t === 'views') {
       el.textContent = fmt(viewsOf(el.dataset.video)) + ' views';
     }
@@ -1642,7 +1699,7 @@ function viewFeed(ctx) {
           ${avatarHTML(c, 'lg')}
           <div class="chan-card-info">
             <h3>${esc(c.name)}</h3>
-            <div class="sub">${esc(c.handle || '')} · ${fmt(subsOf(c.id))} subscriber${subsOf(c.id) === 1 ? '' : 's'}</div>
+            <div class="sub">${esc(c.handle || '')} · <span data-dyn="subcount-label" data-channel="${esc(c.id)}">${fmt(subsOf(c.id))} subscriber${subsOf(c.id) === 1 ? '' : 's'}</span></div>
           </div>
         </a>`).join('')}</div>
     ` : '';
@@ -1827,6 +1884,37 @@ function viewPlaylists(ctx) {
         </div></div>
       </a>`;
     }).join('')}</div>` : emptyState('🎵', 'No playlists yet', 'Create your first playlist to organize videos.', '')}`;
+}
+
+function viewPro() {
+  return `
+    <section class="pro-page">
+      <div class="pro-hero">
+        <div class="pro-badge">✦ PIXELTube PRO</div>
+        <h1>More ways to watch.</h1>
+        <p>Get more out of every video with PIXELTube Pro.</p>
+        <div class="pro-price"><strong>$5</strong><span>/ month</span></div>
+        <button class="btn-primary pro-coming-soon" type="button" disabled>Coming Soon</button>
+      </div>
+      <div class="pro-features">
+        <article class="pro-feature">
+          <div class="pro-feature-icon">▣</div>
+          <h2>Bunny-powered 1080p playback</h2>
+          <p>Watch supported videos in Full HD with Bunny’s embedded video player.</p>
+        </article>
+        <article class="pro-feature">
+          <div class="pro-feature-icon">↓</div>
+          <h2>Up to 10 GB of downloads</h2>
+          <p>Keep more videos available for offline viewing.</p>
+        </article>
+        <article class="pro-feature">
+          <div class="pro-feature-icon">◇</div>
+          <h2>HEVC encoding</h2>
+          <p>Enjoy efficient video encoding where supported.</p>
+        </article>
+      </div>
+      <p class="pro-note">PIXELTube Pro is not available to purchase yet. No account or payment is needed to view this page.</p>
+    </section>`;
 }
 
 function viewPlaylist(ctx) {
@@ -2282,7 +2370,7 @@ function viewCreate() {
               <div id="dropzoneEmpty">
                 <div class="dz-icon">⬆️</div>
                 <div class="dz-title">Click to choose or drop a video</div>
-                <div class="dz-sub">MP4, WebM, or MOV — Longs up to 500 MB, Minis up to 100 MB</div>
+                <div class="dz-sub">MP4, WebM, or MOV — Longs and Minis up to 100 MB</div>
               </div>
               <div id="dropzoneFile" class="dz-file" style="display:none">
                 <div style="font-size:30px">🎬</div>
