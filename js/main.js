@@ -12,6 +12,7 @@ import {
 } from './helpers.js';
 
 import * as storage from './storage.js';
+import { promptEditChannel } from './channel.js';
 import {
   offlineDownloads, isOfflineDownloaded, saveOfflineVideo,
   removeOfflineVideo, offlinePlaybackSource, clearOfflinePlaybackUrls
@@ -403,7 +404,6 @@ async function saveChannel(cid, data) {
     ownerUsername: PIXLECT.user.username,
     createdAt: existing.createdAt || Date.now()
   };
-  if (existing.subs === undefined || existing.subs === null) ch.subs = 0;
   if (state.mode === 'firebase' && db) {
     try { await update(ref(db, `pixeltube/channels/${cid}`), ch); }
     catch (e) { toast('Could not save channel: ' + (e?.message || e)); throw e; }
@@ -2160,30 +2160,37 @@ function miniSectionHTML(v, ctx, viewerMode) {
             <span class="circ"><svg viewBox="0 0 24 24"><path d="M2 20h3V9H2zm19.8-9.4c0-.9-.7-1.6-1.6-1.6h-5l.8-3.9.03-.3c0-.3-.1-.6-.3-.8L14.9 3 9.4 8.6c-.3.2-.4.6-.4.9V18c0 .9.7 1.6 1.6 1.6h7.2c.7 0 1.2-.4 1.4-1l2.4-5.7c.1-.2.1-.4.1-.6z"/></svg></span>
             <span class="lbl">${fmt(v.likes)}</span>
           </button>
-          <button class="rail-btn" data-action="dislike" data-video="${esc(v.id)}" data-dyn="dislike" type="button">
-            <span class="circ"><svg viewBox="0 0 24 24"><path d="M2 4h3v11H2zm19.8 9.4c0 .9-.7 1.6-1.6 1.6h-5l.8 3.9.03.3c0 .3-.1.6-.3.8L14.9 21l-5.5-5.6c-.3-.2-.4-.6-.4-.9V6c0-.9.7-1.6 1.6-1.6h7.2c.7 0 1.2.4 1.4 1l2.4 5.7c.1.2.1.4.1.6z"/></svg></span>
-            <span class="lbl">${fmt(v.dislikes)}</span>
-          </button>
           <button class="rail-btn" data-action="sub" data-channel="${esc(c.id)}" data-dyn="sub" type="button">
             <span class="circ"><svg viewBox="0 0 24 24"><path d="M12 12a5 5 0 1 0-5-5 5 5 0 0 0 5 5zm0 2c-4 0-8 2-8 4.5V21h16v-2.5C20 16 16 14 12 14z"/></svg></span>
           </button>
-          <button class="rail-btn" data-action="share" data-video="${esc(v.id)}" type="button">
-            <span class="circ"><svg viewBox="0 0 24 24"><path d="M14 9V5l7 7-7 7v-4.1C9.5 12.9 5.6 14.4 3 18c.5-4.5 2.9-8 11-9z"/></svg></span>
-          </button>
-          <button class="rail-btn" data-action="${isOfflineDownloaded(v.id) ? 'offline-remove' : 'offline-save'}" data-video="${esc(v.id)}" type="button" aria-label="${isOfflineDownloaded(v.id) ? 'Remove offline download' : 'Download offline'}">
-            <span class="circ">⬇</span>
-            <span class="lbl">${isOfflineDownloaded(v.id) ? 'Saved' : 'Download'}</span>
-          </button>
-          ${canReport ? `
-          <button class="rail-btn" data-action="report-video" data-video="${esc(v.id)}" type="button">
-            <span class="circ"><svg viewBox="0 0 24 24"><path d="M12 2L1 21h22zM13 18h-2v-2h2zm0-4h-2V9h2z"/></svg></span>
-            <span class="lbl">Report</span>
-          </button>` : ''}
-          ${canDelete ? `
-          <button class="rail-btn" data-action="del-video" data-video="${esc(v.id)}" type="button" style="color:var(--accent)">
-            <span class="circ"><svg viewBox="0 0 24 24"><path d="M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6zM19 4h-3.5l-1-1h-5l-1 1H5v2h14z"/></svg></span>
-            <span class="lbl">Delete</span>
-          </button>` : ''}
+          <details class="mini-more">
+            <summary class="rail-btn" aria-label="More video actions">
+              <span class="circ more-circ">⋯</span>
+              <span class="lbl">More</span>
+            </summary>
+            <div class="mini-more-menu">
+              <button class="mini-more-item" data-action="dislike" data-video="${esc(v.id)}" data-dyn="dislike" type="button">
+                <svg viewBox="0 0 24 24"><path d="M2 4h3v11H2zm19.8 9.4c0 .9-.7 1.6-1.6 1.6h-5l.8 3.9.03.3c0 .3-.1.6-.3.8L14.9 21l-5.5-5.6c-.3-.2-.4-.6-.4-.9V6c0-.9.7-1.6 1.6-1.6h7.2c.7 0 1.2.4 1.4 1l2.4 5.7c.1.2.1.4.1.6z"/></svg>
+                <span>Dislike <span class="lbl">${fmt(v.dislikes)}</span></span>
+              </button>
+              <button class="mini-more-item" data-action="share" data-video="${esc(v.id)}" type="button">
+                <svg viewBox="0 0 24 24"><path d="M14 9V5l7 7-7 7v-4.1C9.5 12.9 5.6 14.4 3 18c.5-4.5 2.9-8 11-9z"/></svg>
+                <span>Share</span>
+              </button>
+              <button class="mini-more-item" data-action="${isOfflineDownloaded(v.id) ? 'offline-remove' : 'offline-save'}" data-video="${esc(v.id)}" type="button">
+                <span class="more-download-icon">↓</span>
+                <span>${isOfflineDownloaded(v.id) ? 'Remove download' : 'Download offline'}</span>
+              </button>
+              ${canReport ? `<button class="mini-more-item" data-action="report-video" data-video="${esc(v.id)}" type="button">
+                <svg viewBox="0 0 24 24"><path d="M12 2L1 21h22zM13 18h-2v-2h2zm0-4h-2V9h2z"/></svg>
+                <span>Report</span>
+              </button>` : ''}
+              ${canDelete ? `<button class="mini-more-item" data-action="del-video" data-video="${esc(v.id)}" type="button">
+                <svg viewBox="0 0 24 24"><path d="M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6zM19 4h-3.5l-1-1h-5l-1 1H5v2h14z"/></svg>
+                <span>Delete</span>
+              </button>` : ''}
+            </div>
+          </details>
         </div>
 
         <div class="bottom">
@@ -2668,6 +2675,8 @@ document.addEventListener('click', async (e) => {
   const el = e.target.closest('[data-action]');
   if (!el) return;
   const action = el.dataset.action;
+  const moreMenu = el.closest('.mini-more');
+  if (moreMenu) moreMenu.open = false;
   if (action === 'menu') { e.preventDefault(); document.body.classList.toggle('nav-open'); return; }
   if (action === 'like')    { e.preventDefault(); e.stopPropagation(); toggleLike(el.dataset.video); return; }
   if (action === 'dislike') { e.preventDefault(); e.stopPropagation(); toggleDislike(el.dataset.video); return; }
