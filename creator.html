@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PIXELTube Studio</title>
+<link rel="icon" type="image/png" href="./logo.png" />
+<link rel="stylesheet" href="./css/styles.css" />
+<script src="https://cdn.jsdelivr.net/npm/tus-js-client@4.1.0/dist/tus.min.js"></script>
+<style>
+  /* Studio-only overrides for the standalone page */
+  body[data-page="creator"] .topbar       { display: none; }
+  body[data-page="creator"] .site-footer  { display: none; }
+  body[data-page="creator"] .sidebar      { display: none; }
+  body[data-page="creator"] .shell        { padding-top: 0; }
+
+  /* Optional: a slim Studio-only top bar */
+  .studio-topbar {
+    height: 52px; flex: none;
+    display: flex; align-items: center; gap: 14px;
+    padding: 0 18px;
+    border-bottom: 1px solid var(--line);
+    background: rgba(10,14,26,.96);
+    backdrop-filter: blur(10px);
+    position: sticky; top: 0; z-index: 60;
+  }
+  .studio-topbar .brand {
+    font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+    font-size: 15px; font-weight: 700; letter-spacing: -0.4px;
+  }
+  .studio-topbar .brand b {
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .studio-topbar .spacer { flex: 1; }
+  .studio-topbar a {
+    font-size: 13px; font-weight: 700; color: var(--muted);
+    padding: 7px 12px; border-radius: 99px; transition: .15s;
+  }
+  .studio-topbar a:hover { background: var(--surface2); color: var(--text); }
+  .studio-topbar a.primary {
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    color: #fff;
+  }
+  .studio-topbar a.primary:hover { filter: brightness(1.1); }
+</style>
+</head>
+<body data-page="creator">
+
+<!-- Loading screen (same as index.html) -->
+<div id="loader">
+  <div class="inner">
+    <img src="./logo.png" alt="PIXELTube" />
+    <div class="name"><b>PIXEL</b>Studio</div>
+    <div class="bar"></div>
+    <div class="status" id="loaderStatus">Connecting to Firebase…</div>
+  </div>
+</div>
+
+<!-- Studio-only top bar -->
+<header class="studio-topbar">
+  <span class="brand"><b>PIXEL</b>Studio</span>
+  <span class="spacer"></span>
+  <a href="./index.html">Back to PIXELTube</a>
+  <a href="#/create" class="primary">+ Upload</a>
+</header>
+
+<div class="shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <main class="main" id="view"></main>
+</div>
+
+<div id="toast"></div>
+<div id="modalRoot"></div>
+
+<script type="module" src="./js/main.js"></script>
+</body>
+</html>
