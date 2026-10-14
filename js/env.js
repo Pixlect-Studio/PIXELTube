@@ -11,7 +11,7 @@
      const key = env.BUNNY_STREAM_API_KEY;
    ============================================================ */
 
-const ENV_PATH = './.env';
+const ENV_PATH = './data.env';
 
 let envCache = null;
 let envPromise = null;
