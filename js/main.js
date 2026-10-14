@@ -184,7 +184,6 @@ const state = {
   uid: PIXLECT.user ? ('pl_' + PIXLECT.user.uid) : getLocalUid(),
   mode: 'connecting',
   videos: {}, channels: {}, playlists: {}, subs: {}, likes: {}, dislikes: {},
-  subscriberCounts: {},
   users: {}, reports: {}, comments: {},
   search: '', route: ['home'],
   viewedThisSession: new Set(),
@@ -203,7 +202,8 @@ let commentsUnsub = null;
    DERIVED HELPERS
    ============================================================ */
 const subsOf = cid => {
-  return state.subscriberCounts[cid] || 0;
+  const count = Number(state.channels[cid]?.subs);
+  return Number.isFinite(count) && count >= 0 ? count : 0;
 };
 const likesOf    = vid => (state.videos[vid]?.likes) || 0;
 const dislikesOf = vid => (state.videos[vid]?.dislikes) || 0;
@@ -395,16 +395,16 @@ async function saveChannel(cid, data) {
     color: data.color || existing.color || (PIXLECT.user.icon?.bg || '#38bdf8'),
     avatar: data.avatar !== undefined ? data.avatar : (existing.avatar || ''),
     banner: data.banner !== undefined ? data.banner : (existing.banner || ''),
-    subs: subsOf(cid),
     ownerUid: PIXLECT.user.uid,
     ownerUsername: PIXLECT.user.username,
     createdAt: existing.createdAt || Date.now()
   };
+  if (existing.subs === undefined || existing.subs === null) ch.subs = 0;
   if (state.mode === 'firebase' && db) {
-    try { await set(ref(db, `pixeltube/channels/${cid}`), ch); }
+    try { await update(ref(db, `pixeltube/channels/${cid}`), ch); }
     catch (e) { toast('Could not save channel: ' + (e?.message || e)); throw e; }
   } else if (state.mode === 'local' && localDB) {
-    localDB.channels[cid] = ch;
+    localDB.channels[cid] = { ...existing, ...ch };
     persistLocal();
     applyData(localDB);
   }
@@ -534,15 +534,6 @@ function applyData(d) {
   state.users     = d.users     || {};
   state.reports   = d.reports   || {};
   state.comments  = d.comments  || {};
-  state.subscriberCounts = {};
-  Object.values(state.users).forEach(user => {
-    const subscriptions = user?.subs;
-    if (!subscriptions || typeof subscriptions !== 'object') return;
-    Object.entries(subscriptions).forEach(([cid, subscribed]) => {
-      if (subscribed) state.subscriberCounts[cid] = (state.subscriberCounts[cid] || 0) + 1;
-    });
-  });
-
   const u = (d.users && d.users[state.uid]) || {};
   state.subs     = u.subs     || {};
   state.likes    = u.likes    || {};
@@ -594,17 +585,21 @@ function setStatus() {
 async function toggleSub(cid) {
   if (!cid) return;
   if (!PIXLECT.user) { toast('Sign in with PIXLECT to subscribe'); pixlectSignIn(); return; }
-  const on = isSubbed(cid);
+  const on = isSubbed(cid), delta = on ? -1 : 1;
   if (state.mode === 'firebase') {
     try {
       const p = `pixeltube/users/${state.uid}/subs/${cid}`;
       if (on) await remove(ref(db, p)); else await set(ref(db, p), true);
+      await runTransaction(ref(db, `pixeltube/channels/${cid}/subs`),
+        n => Math.max(0, (Number(n) || 0) + delta));
       toast(on ? 'Unsubscribed' : 'Subscribed 🔔');
     } catch (e) { toast('Could not update subscription'); }
   } else {
     const u = localDB.users[state.uid] || (localDB.users[state.uid] = {});
     const s = u.subs || (u.subs = {});
     if (on) delete s[cid]; else s[cid] = true;
+    const ch = localDB.channels[cid];
+    if (ch) ch.subs = Math.max(0, (Number(ch.subs) || 0) + delta);
     persistLocal();
     applyData(localDB);
   }
@@ -1059,8 +1054,9 @@ window.__stats = { statsFetchTotals, statsLogEvent };
    ============================================================ */
 function cardHTML(v) {
   const c = chanOf(v.id);
+  const href = v.kind === 'mini' ? `#/mini/${esc(v.id)}` : `#/watch/${esc(v.id)}`;
   return `
-  <a class="card" href="#/watch/${esc(v.id)}">
+  <a class="card" href="${href}">
     <div class="thumb">
       ${thumbHTML(v)}
       <span class="dur">${esc(v.dur)}</span>
@@ -1352,6 +1348,7 @@ function promptCreateExtraChannel() {
    ============================================================ */
 const ICONS = {
   feed:   '<svg viewBox="0 0 24 24"><path d="M4 6h16v2H4zm0 5h16v2H4zm0 5h10v2H4z"/></svg>',
+  longs:  '<svg viewBox="0 0 24 24"><path d="M4 4h16v16H4zm2 2v12h12V6zm3 2 6 4-6 4z"/></svg>',
   minis:  '<svg viewBox="0 0 24 24"><path d="M13 2L4.5 13H11l-1 9L18.5 11H12z"/></svg>',
   subs:   '<svg viewBox="0 0 24 24"><path d="M4 6h16v2H4zm0 5h16v2H4zm0 5h10v2H4z"/><circle cx="18" cy="16" r="3"/></svg>',
   like:   '<svg viewBox="0 0 24 24"><path d="M2 20h3V9H2zm19.8-9.4c0-.9-.7-1.6-1.6-1.6h-5l.8-3.9.03-.3c0-.3-.1-.6-.3-.8L14.9 3 9.4 8.6c-.3.2-.4.6-.4.9V18c0 .9.7 1.6 1.6 1.6h7.2c.7 0 1.2-.4 1.4-1l2.4-5.7c.1-.2.1-.4.1-.6z"/></svg>',
@@ -1394,6 +1391,7 @@ function renderSidebar() {
 
   sb.innerHTML = `
     <a class="nav ${page === 'home' ? 'active' : ''}" href="#/">${ICONS.feed} Feed</a>
+    <a class="nav ${page === 'longs' ? 'active' : ''}" href="#/longs">${ICONS.longs} Longs</a>
     <a class="nav ${page === 'minis' ? 'active' : ''}" href="#/minis">${ICONS.minis} Minis</a>
     <a class="nav ${page === 'subs' ? 'active' : ''}" href="#/subs">${ICONS.subs} Subscriptions <span class="count">${subIds.length || ''}</span></a>
     <a class="nav ${page === 'liked' ? 'active' : ''}" href="#/liked">${ICONS.like} Liked <span class="count">${likeCount || ''}</span></a>
@@ -1494,7 +1492,8 @@ function render(force = false) {
   const [page, arg] = state.route;
 
   if      (page === 'home')      view.innerHTML = viewFeed(CTX);
-  else if (page === 'minis')     { view.innerHTML = viewMinis(CTX); setupMinis(CTX); hydrateVideosInView(view); }
+  else if (page === 'longs')     view.innerHTML = viewLongs(CTX);
+  else if (page === 'minis')     view.innerHTML = viewMinis(CTX);
   else if (page === 'mini')      {
     view.innerHTML = viewMiniViewer(CTX, arg);
     setupMinis(CTX);
@@ -1591,9 +1590,11 @@ function viewFeed(ctx) {
       const c = chanOf(v.id);
       return matches(v.title) || matches(v.desc) || matches(c.name);
     });
+    const longs = videos.filter(v => v.kind !== 'mini');
+    const minis = videos.filter(v => v.kind === 'mini');
     const channels = Object.values(state.channels).filter(c =>
       matches(c.name) || matches(c.handle)
-    ).sort((a, b) => (b.subs || 0) - (a.subs || 0));
+    ).sort((a, b) => subsOf(b.id) - subsOf(a.id));
 
     if (!videos.length && !channels.length) {
       return emptyState('🔍', `No results for "${state.search}"`, 'Try a different search term.', '');
@@ -1614,12 +1615,19 @@ function viewFeed(ctx) {
         </a>`).join('')}</div>
     ` : '';
 
-    const videosBlock = videos.length ? `
+    const videosBlock = longs.length ? `
       <div class="page-head" style="padding-top:14px">
-        <h2 style="font-size:16px;font-weight:800">Videos</h2>
-        <p>${videos.length} result${videos.length === 1 ? '' : 's'}</p>
+        <h2 style="font-size:16px;font-weight:800">Longs</h2>
+        <p>${longs.length} result${longs.length === 1 ? '' : 's'}</p>
       </div>
-      <div class="grid">${videos.map(cardHTML).join('')}</div>
+      <div class="grid">${longs.map(cardHTML).join('')}</div>
+    ` : '';
+    const minisBlock = minis.length ? `
+      <div class="page-head" style="padding-top:14px">
+        <h2 style="font-size:16px;font-weight:800">Minis</h2>
+        <p>${minis.length} result${minis.length === 1 ? '' : 's'}</p>
+      </div>
+      <div class="shorts-grid">${minis.map(shortCardHTML).join('')}</div>
     ` : '';
 
     return `
@@ -1627,7 +1635,7 @@ function viewFeed(ctx) {
         <h1>Results for "${esc(state.search)}"</h1>
         <p>${channels.length} channel${channels.length === 1 ? '' : 's'} · ${videos.length} video${videos.length === 1 ? '' : 's'}</p>
       </div>
-      ${channelsBlock}${videosBlock}`;
+      ${channelsBlock}${videosBlock}${minisBlock}`;
   }
 
   if (!hasSearchHistory()) {
@@ -1655,7 +1663,7 @@ function viewFeed(ctx) {
     });
   });
 
-  const scored = videosSorted()
+  const scored = videosSorted().filter(v => v.kind !== 'mini')
     .map(v => {
       const c = chanOf(v.id);
       let s = 0;
@@ -1682,31 +1690,27 @@ function viewFeed(ctx) {
       </div>`;
   }
 
-  const top = scored.slice(0, 40).map(x => x.v);
-  const longs = top.filter(v => v.kind !== 'mini');
-  const minis = top.filter(v => v.kind === 'mini');
-
-  const minisShelf = minis.length ? `
-    <section class="shorts-shelf">
-      <div class="shelf-head">
-        <div class="icon"><svg viewBox="0 0 24 24"><path d="M13 2L4.5 13H11l-1 9L18.5 11H12z"/></svg></div>
-        <h2>Minis for you</h2>
-        <a href="#/minis" style="margin-left:auto;font-size:13px;color:var(--muted);font-weight:700">View all →</a>
-      </div>
-      <div class="shorts-rail">${minis.slice(0, 12).map(shortCardHTML).join('')}</div>
-    </section>` : '';
+  const longs = scored.slice(0, 40).map(x => x.v);
 
   return `
     <div class="page-head">
-      <h1>Feed</h1>
-      <p>${scored.length} video${scored.length === 1 ? '' : 's'} based on your searches</p>
+      <h1>Longs for you</h1>
+      <p>${longs.length} long-form video${longs.length === 1 ? '' : 's'} based on your searches</p>
     </div>
-    ${minisShelf}
     ${longs.length ? `<div class="grid">${longs.map(cardHTML).join('')}</div>` : ''}`;
 }
 
+function viewLongs(ctx) {
+  const { longsSorted, cardHTML, emptyState } = ctx;
+  const list = longsSorted();
+  if (!list.length) return emptyState('🎬', 'No Longs yet', 'Long-form videos will appear here.', '');
+  return `
+    <div class="page-head"><h1>Longs</h1><p>${list.length} long-form video${list.length === 1 ? '' : 's'}</p></div>
+    <div class="grid">${list.map(cardHTML).join('')}</div>`;
+}
+
 function viewSubs(ctx) {
-  const { state, videosSorted, cardHTML, emptyState, PIXLECT } = ctx;
+  const { state, videosSorted, cardHTML, shortCardHTML, emptyState, PIXLECT } = ctx;
   const ids = Object.keys(state.subs);
   if (!ids.length) {
     return emptyState('📺', 'No subscriptions yet',
@@ -1719,12 +1723,12 @@ function viewSubs(ctx) {
       <h1>Subscriptions</h1>
       <p>${ids.length} channel${ids.length === 1 ? '' : 's'} · ${list.length} video${list.length === 1 ? '' : 's'}</p>
     </div>
-    ${list.length ? `<div class="grid">${list.map(cardHTML).join('')}</div>`
+    ${list.length ? videoTypeSections(list, cardHTML, shortCardHTML)
       : emptyState('📭', 'Nothing new yet', 'Channels you subscribe to haven\'t uploaded anything.', '')}`;
 }
 
 function viewLiked(ctx) {
-  const { state, videosSorted, cardHTML, emptyState, PIXLECT } = ctx;
+  const { state, videosSorted, cardHTML, shortCardHTML, emptyState, PIXLECT } = ctx;
   const ids = Object.keys(state.likes);
   if (!ids.length) {
     return emptyState('👍', 'No liked videos',
@@ -1734,7 +1738,18 @@ function viewLiked(ctx) {
   const list = videosSorted().filter(v => state.likes[v.id]);
   return `
     <div class="page-head"><h1>Liked videos</h1><p>${list.length} video${list.length === 1 ? '' : 's'}</p></div>
-    <div class="grid">${list.map(cardHTML).join('')}</div>`;
+    ${videoTypeSections(list, cardHTML, shortCardHTML)}`;
+}
+
+function videoTypeSections(videos, cardHTML, shortCardHTML) {
+  const longs = videos.filter(v => v.kind !== 'mini');
+  const minis = videos.filter(v => v.kind === 'mini');
+  return `
+    ${longs.length ? `<div class="page-head"><h2>Longs</h2><p>${longs.length} video${longs.length === 1 ? '' : 's'}</p></div><div class="grid">${longs.map(cardHTML).join('')}</div>` : ''}
+    ${minis.length ? `<section class="shorts-shelf">
+      <div class="shelf-head"><div class="icon"><svg viewBox="0 0 24 24"><path d="M13 2L4.5 13 11 13l-1 9 8.5-11H12z"/></svg></div><h2>Minis</h2></div>
+      <div class="shorts-grid">${minis.map(shortCardHTML).join('')}</div>
+    </section>` : ''}`;
 }
 
 function viewPlaylists(ctx) {
@@ -1787,11 +1802,12 @@ function viewPlaylist(ctx) {
     ${vids.length ? `<div class="playlist-videos">
       ${vids.map((v, i) => {
         const c = chanOf(v.id);
+        const videoHref = v.kind === 'mini' ? `#/mini/${esc(v.id)}` : `#/watch/${esc(v.id)}`;
         return `<div class="pl-item" data-pl-item="${esc(v.id)}">
           <div class="idx">${i + 1}</div>
-          <a class="t" href="#/watch/${esc(v.id)}">${thumbHTML(v)}<span class="dur">${esc(v.dur)}</span></a>
+          <a class="t" href="${videoHref}">${thumbHTML(v)}<span class="dur">${esc(v.dur)}</span></a>
           <div class="info">
-            <a href="#/watch/${esc(v.id)}"><h4>${esc(v.title)}</h4></a>
+            <a href="${videoHref}"><h4>${esc(v.title)}</h4></a>
             <div class="sub">${esc(c.name)} · ${fmt(v.views)} views</div>
           </div>
           ${isOwner ? `<button class="remove" data-action="pl-remove" data-pid="${esc(pid)}" data-vid="${esc(v.id)}" type="button">Remove</button>` : ''}
@@ -1845,7 +1861,7 @@ function viewChannel(ctx, cid) {
           <div class="icon"><svg viewBox="0 0 24 24"><path d="M13 2L4.5 13H11l-1 9L18.5 11H12z"/></svg></div>
           <h2>Minis</h2>
         </div>
-        <div class="shorts-rail">${minis.map(shortCardHTML).join('')}</div>
+        <div class="shorts-grid">${minis.map(shortCardHTML).join('')}</div>
       </section>` : ''}
     ${longs.length
       ? `<div class="grid">${longs.map(cardHTML).join('')}</div>`
@@ -1873,7 +1889,7 @@ function viewWatch(ctx, vid) {
   const canDelete = isMine || isAdmin();
   const canReport = PIXLECT.user && !isMine;
 
-  const upNext = videosSorted().filter(x => x.id !== vid)
+  const upNext = videosSorted().filter(x => x.id !== vid && (x.kind === 'mini') === (v.kind === 'mini'))
     .sort((a, b) => (b.channelId === c.id) - (a.channelId === c.id))
     .slice(0, 10);
 
@@ -2058,7 +2074,9 @@ function viewMinis(ctx) {
                                    : `<button class="btn-primary" id="emptyCreateChannel" type="button">Create your PIXELChannel</button>`)
                    : `<button class="btn-primary" onclick="window.dispatchEvent(new Event('pixeltube:signin'))" type="button">Sign in with PIXLECT</button>`);
   }
-  return list.map(v => miniSectionHTML(v, ctx, false)).join('');
+  return `
+    <div class="page-head"><h1>Minis</h1><p>${list.length} Mini${list.length === 1 ? '' : 's'}</p></div>
+    <div class="shorts-grid">${list.map(shortCardHTML).join('')}</div>`;
 }
 
 function viewMiniViewer(ctx, currentVid) {
