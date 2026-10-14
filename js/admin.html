@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PIXELTube Admin</title>
+<link rel="icon" type="image/png" href="./logo.png" />
+<link rel="stylesheet" href="./css/styles.css" />
+<style>
+  /* Admin-only overrides for the standalone page */
+  body[data-page="admin"] .topbar       { display: none; }
+  body[data-page="admin"] .site-footer  { display: none; }
+  body[data-page="admin"] .sidebar      { display: none; }
+  body[data-page="admin"] .shell        { padding-top: 0; }
+
+  /* Slim Admin-only top bar */
+  .admin-topbar {
+    height: 52px; flex: none;
+    display: flex; align-items: center; gap: 14px;
+    padding: 0 18px;
+    border-bottom: 1px solid var(--line);
+    background: rgba(10,14,26,.96);
+    backdrop-filter: blur(10px);
+    position: sticky; top: 0; z-index: 60;
+  }
+  .admin-topbar .brand {
+    font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+    font-size: 15px; font-weight: 700; letter-spacing: -0.4px;
+  }
+  .admin-topbar .brand b {
+    background: linear-gradient(90deg, var(--warn), var(--accent));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .admin-topbar .badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 10.5px; font-weight: 800; letter-spacing: .6px;
+    color: var(--warn);
+    background: rgba(251,191,36,.12);
+    border: 1px solid rgba(251,191,36,.35);
+    padding: 3px 9px; border-radius: 99px;
+  }
+  .admin-topbar .badge svg { width: 12px; height: 12px; fill: currentColor; }
+  .admin-topbar .spacer { flex: 1; }
+  .admin-topbar a {
+    font-size: 13px; font-weight: 700; color: var(--muted);
+    padding: 7px 12px; border-radius: 99px; transition: .15s;
+  }
+  .admin-topbar a:hover { background: var(--surface2); color: var(--text); }
+</style>
+</head>
+<body data-page="admin">
+
+<!-- Loading screen -->
+<div id="loader">
+  <div class="inner">
+    <img src="./logo.png" alt="PIXELTube" />
+    <div class="name"><b>PIXEL</b>Admin</div>
+    <div class="bar"></div>
+    <div class="status" id="loaderStatus">Connecting to Firebase…</div>
+  </div>
+</div>
+
+<!-- Admin-only top bar -->
+<header class="admin-topbar">
+  <span class="brand"><b>PIXEL</b>Admin</span>
+  <span class="badge">
+    <svg viewBox="0 0 24 24"><path d="M12 1l3 6 6 1-4.5 4.5L18 19l-6-3-6 3 1.5-6.5L3 8l6-1z"/></svg>
+    MODERATION
+  </span>
+  <span class="spacer"></span>
+  <a href="./index.html">Back to PIXELTube</a>
+  <a href="#/admin">Reports</a>
+  <a href="#/admin/users">Channels</a>
+</header>
+
+<div class="shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <main class="main" id="view"></main>
+</div>
+
+<div id="toast"></div>
+<div id="modalRoot"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/tus-js-client@4.1.0/dist/tus.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js"></script>
+<script type="module" src="./js/main.js?v=7"></script>
+</body>
+</html>

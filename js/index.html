@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PIXELTube</title>
+<link rel="icon" type="image/png" href="./logo.png" />
+<link rel="stylesheet" href="./styles/styles.css" />
+</head>
+<body>
+
+<div id="loader">
+  <div class="inner">
+    <img src="./logo.png" alt="PIXELTube" />
+    <div class="name"><b>PIXEL</b>Tube</div>
+    <div class="bar"></div>
+    <div class="status" id="loaderStatus">Connecting to Firebase…</div>
+  </div>
+</div>
+
+<header class="topbar">
+  <button class="icon-btn" data-action="menu" aria-label="Menu" type="button">
+    <svg viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+  </button>
+  <a class="logo" href="#/">
+    <span class="logo-mark"><img src="./logo.png" alt="PIXELTube" /></span>
+    <span class="logo-text"><b>PIXEL</b>Tube</span>
+  </a>
+  <div class="search">
+    <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 1 0-.7.7l.27.28v.79l5 4.99L20.49 19zm-6 0A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14z"/></svg>
+    <input id="searchInput" type="search" placeholder="Search videos, channels, and descriptions" autocomplete="off" />
+  </div>
+  <span class="status-pill" id="statusPill">connecting</span>
+  <div id="authSlot"></div>
+</header>
+
+<div class="shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <main class="main" id="view"></main>
+</div>
+
+<footer class="site-footer">
+  <a href="#/privacy">Privacy Policy</a>
+  <span class="dot">·</span>
+  <a href="#/terms">Terms &amp; Conditions</a>
+  <span class="dot">·</span>
+  <a href="#/guidelines">Community Guidelines</a>
+  <span class="dot">·</span>
+  <span>© 2026 PIXELTube</span>
+</footer>
+
+<div id="toast"></div>
+<div id="modalRoot"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/tus-js-client@4.1.0/dist/tus.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js"></script>
+<script type="module" src="./js/main.js?v=7"></script>
+</body>
+</html>
