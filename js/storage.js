@@ -1,127 +1,111 @@
 /* ============================================================
    PIXELTube — storage.js
-   Backend abstraction for video uploads and playback.
+   Bunny Stream (Longs + Minis) with Firebase fallback for Minis.
 
    Routing:
-     Minis / Shorts
-       Primary  : Firebase Realtime DB (base64)
-       Fallback : Backblaze B2 (via Cloudflare Worker signer)
+     Minis  → Bunny Stream (primary) → Firebase base64 (fallback)
+     Longs  → Bunny Stream (primary) → Firebase base64 (if ≤ 8 MB)
 
-     Longs
-       Primary  : Supabase Storage
-       Fallback : Backblaze B2
-       Last try : Firebase Realtime DB (base64)
-
-   Public API:
-     uploadVideo(ctx, file, vid, kind, onProgress)
-       → { storedSrc, srcBackend }
-     uploadFromUrl(url)
-       → { storedSrc, srcBackend }
-     resolvePlaybackUrl(ctx, vid) → string (URL or data URL)
-     deleteVideoSource(ctx, vid) → void
+   Environment (from .env, never committed):
+     BUNNY_LIBRARY_ID    — your Bunny Stream library ID (1989034)
+     BUNNY_STREAM_API_KEY — your Bunny Stream API key
+     BUNNY_CDN_HOST      — your pull zone host (e.g. pixeltube-videos.b-cdn.net)
    ============================================================ */
 
 /* ============================================================
-   CONFIG
+   CONFIG — read from environment
    ============================================================ */
-const SUPABASE_BUCKET = 'PIXELTUBE_VIDEOS';
-const B2_SIGNER_URL   = 'https://pixeltube-signer.aaraiz-adnan14.workers.dev';
+const BUNNY_LIBRARY_ID  = import.meta.env.VITE_BUNNY_LIBRARY_ID;
+const BUNNY_API_KEY     = import.meta.env.VITE_BUNNY_STREAM_API_KEY;
+const BUNNY_CDN_HOST    = import.meta.env.VITE_BUNNY_CDN_HOST;
+
+const TUS_ENDPOINT = 'https://video.bunnycdn.com/tusupload';
 
 /* ============================================================
-   B2 — Cloudflare Worker signer
+   BUNNY STREAM — TUS resumable upload
    ============================================================ */
 
-async function b2Upload(file, key, onProgress) {
-  /* 1. Ask the Worker for a presigned PUT URL */
-  const signRes = await fetch(`${B2_SIGNER_URL}/sign-upload`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ key, contentType: file.type || 'video/mp4' })
-  });
-
-  if (!signRes.ok) {
-    const err = await signRes.text().catch(() => 'signer error');
-    throw new Error(`Signer rejected the request: ${err}`);
+/* Create a video object in Bunny Stream and return { videoId, signature, expirationTime }. */
+async function bunnyCreateVideo(title) {
+  if (!BUNNY_LIBRARY_ID || !BUNNY_API_KEY) {
+    throw new Error('Bunny Stream not configured — check your .env');
   }
 
-  const { url, error } = await signRes.json();
-  if (error) throw new Error(`Signer error: ${error}`);
-  if (!url) throw new Error('Signer returned no URL');
+  const res = await fetch(
+    `https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'AccessKey': BUNNY_API_KEY
+      },
+      body: JSON.stringify({ title })
+    }
+  );
 
-  /* 2. PUT the file directly to B2. */
-  if (onProgress) onProgress(0, file.size);
-
-  const putRes = await fetch(url, {
-    method: 'PUT',
-    body: file,
-    headers: { 'Content-Type': file.type || 'video/mp4' }
-  });
-
-  if (!putRes.ok) {
-    const txt = await putRes.text().catch(() => '');
-    throw new Error(`B2 upload failed (${putRes.status}): ${txt.slice(0, 200)}`);
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '');
+    throw new Error(`Bunny create video failed (${res.status}): ${txt.slice(0, 200)}`);
   }
 
-  if (onProgress) onProgress(file.size, file.size);
+  const data = await res.json();
+  const videoId = data.guid;
 
-  /* Return the object key — playback re-signs on every watch. */
-  return key;
+  /* Generate the TUS signature: SHA256(library_id + api_key + expiration + video_id) [citation:1][citation:9] */
+  const expirationTime = Math.floor(Date.now() / 1000) + 86400; // 24 hours
+  const signatureInput = `${BUNNY_LIBRARY_ID}${BUNNY_API_KEY}${expirationTime}${videoId}`;
+  const signature = await sha256Hex(signatureInput);
+
+  return { videoId, signature, expirationTime };
 }
 
-async function b2PlaybackUrl(key) {
-  const res = await fetch(`${B2_SIGNER_URL}/sign-play`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ key })
-  });
+/* Upload a file to Bunny Stream using tus-js-client. */
+async function bunnyUpload(file, title, onProgress) {
+  const { videoId, signature, expirationTime } = await bunnyCreateVideo(title);
 
-  if (!res.ok) throw new Error(`Playback signing failed (${res.status})`);
-  const { url, error } = await res.json();
-  if (error) throw new Error(`Signer error: ${error}`);
-  if (!url) throw new Error('Signer returned no URL');
-  return url;
-}
-
-function b2KeyFor(uid, vid, ext, kind) {
-  const prefix = kind === 'mini' ? 'shorts' : 'longs';
-  return `${prefix}/${uid}/${vid}.${(ext || 'mp4').toLowerCase()}`;
-}
-
-/* ============================================================
-   SUPABASE
-   ============================================================ */
-
-async function supabaseUpload(client, file, key, onProgress) {
-  if (onProgress) onProgress(0, file.size);
-
-  const { error } = await client.storage
-    .from(SUPABASE_BUCKET)
-    .upload(key, file, {
-      cacheControl: '3600',
-      upsert: false,
-      contentType: file.type || 'video/mp4'
+  return new Promise((resolve, reject) => {
+    const upload = new tus.Upload(file, {
+      endpoint: TUS_ENDPOINT,
+      retryDelays: [0, 3000, 5000, 10000, 20000, 60000, 60000],
+      headers: {
+        AuthorizationSignature: signature,
+        AuthorizationExpire: String(expirationTime),
+        VideoId: videoId,
+        LibraryId: String(BUNNY_LIBRARY_ID)
+      },
+      metadata: {
+        filetype: file.type || 'video/mp4',
+        title: title || file.name
+      },
+      onError(error) {
+        console.error('[storage] Bunny TUS error:', error);
+        reject(new Error(`Bunny upload failed: ${error.message || error}`));
+      },
+      onProgress(bytesUploaded, bytesTotal) {
+        if (onProgress) onProgress(bytesUploaded, bytesTotal);
+      },
+      onSuccess() {
+        resolve(videoId);
+      }
     });
 
-  if (error) throw new Error(`Supabase upload failed: ${error.message}`);
-
-  const { data } = client.storage.from(SUPABASE_BUCKET).getPublicUrl(key);
-  if (!data?.publicUrl) throw new Error('Supabase returned no public URL');
-
-  if (onProgress) onProgress(file.size, file.size);
-  return data.publicUrl;
+    upload.start();
+  });
 }
 
-function supabasePublicUrl(client, key) {
-  try {
-    const { data } = client.storage.from(SUPABASE_BUCKET).getPublicUrl(key);
-    return data?.publicUrl || '';
-  } catch (_) {
-    return '';
-  }
+/* Compute SHA-256 hex of a string using Web Crypto. */
+async function sha256Hex(str) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+  return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+/* Public playback URL from Bunny CDN. */
+function bunnyPublicUrl(videoId) {
+  return `https://${BUNNY_CDN_HOST}/${videoId}/playlist.m3u8`;
 }
 
 /* ============================================================
-   FIREBASE — base64 (primary for Minis, fallback for Longs)
+   FIREBASE — base64 fallback for Minis
    ============================================================ */
 
 function fileToDataURL(file) {
@@ -139,38 +123,33 @@ async function firebaseUpload(ctx, vid, fileOrDataUrl) {
   let dataUrl;
   if (typeof fileOrDataUrl === 'string' && fileOrDataUrl.startsWith('data:')) {
     dataUrl = fileOrDataUrl;
-  } else if (fileOrDataUrl instanceof File || fileOrDataUrl instanceof Blob) {
-    dataUrl = await fileToDataURL(fileOrDataUrl);
   } else {
-    throw new Error('firebaseUpload expects a File, Blob, or data URL');
+    dataUrl = await fileToDataURL(fileOrDataUrl);
   }
 
-  /* Try primary Firebase */
   if (db) {
     try {
       await set(ref(db, `pixeltube/videoSrc/${vid}`), dataUrl);
       return 'firebase';
     } catch (e) {
-      console.warn('[storage] Firebase primary write failed:', e?.message);
+      console.warn('[storage] Firebase primary failed:', e?.message);
     }
   }
 
-  /* Try backup Firebase */
   if (dbBackup) {
     try {
       await set(ref(dbBackup, `pixeltube/videoSrc/${vid}`), dataUrl);
       return 'firebase-backup';
     } catch (e) {
-      console.error('[storage] Firebase backup write also failed:', e?.message);
+      console.error('[storage] Firebase backup failed:', e?.message);
     }
   }
 
-  throw new Error('Both Firebase backends rejected the write');
+  throw new Error('Firebase rejected the write');
 }
 
 async function firebaseRead(ctx, vid, preferBackend) {
   const { db, dbBackup, ref, get } = ctx;
-
   const tryOne = async (h) => {
     if (!h) return '';
     try {
@@ -178,7 +157,6 @@ async function firebaseRead(ctx, vid, preferBackend) {
       return snap.val() || '';
     } catch (_) { return ''; }
   };
-
   if (preferBackend === 'firebase-backup') {
     return (await tryOne(dbBackup)) || (await tryOne(db));
   }
@@ -192,7 +170,7 @@ async function firebaseDelete(ctx, vid) {
 }
 
 /* ============================================================
-   READ HELPER — reads the non-base64 pointer (URL or B2 key)
+   READ HELPER
    ============================================================ */
 async function readStoredSrc(ctx, vid) {
   const { db, ref, get } = ctx;
@@ -207,83 +185,54 @@ async function readStoredSrc(ctx, vid) {
 
 /* ============================================================
    PUBLIC API — upload
-   ============================================================
-
-   Minis:
-     Firebase base64 → B2
-
-   Longs:
-     Supabase → B2 → Firebase base64
    ============================================================ */
 export async function uploadVideo(ctx, file, vid, kind, onProgress) {
   const uid = ctx.PIXLECT?.user?.uid;
   if (!uid) throw new Error('Not signed in');
 
-  const ext = (file.name?.split('.').pop() || 'mp4').toLowerCase();
+  const title = file.name || 'Untitled';
 
-  /* --------------------------------------------------------
-     MINIS — Firebase base64 primary, B2 fallback
-     -------------------------------------------------------- */
+  /* ---------- MINIS → Bunny Stream, fallback Firebase ---------- */
   if (kind === 'mini') {
-    /* Try Firebase first */
-    try {
-      const backend = await firebaseUpload(ctx, vid, file);
-      return { storedSrc: '', srcBackend: backend };
-    } catch (e) {
-      console.warn('[storage] Firebase Mini upload failed, trying B2:', e?.message);
+    if (BUNNY_LIBRARY_ID && BUNNY_API_KEY) {
+      try {
+        const videoId = await bunnyUpload(file, title, onProgress);
+        return { storedSrc: videoId, srcBackend: 'bunny' };
+      } catch (e) {
+        console.warn('[storage] Bunny Mini failed, trying Firebase:', e?.message);
+      }
     }
 
-    /* B2 fallback */
-    try {
-      const key = b2KeyFor(uid, vid, ext, 'mini');
-      await b2Upload(file, key, onProgress);
-      return { storedSrc: key, srcBackend: 'b2' };
-    } catch (e) {
-      console.error('[storage] B2 Mini fallback also failed:', e?.message);
-      throw new Error('Both Firebase and B2 rejected the Mini upload');
-    }
+    /* Firebase fallback */
+    const backend = await firebaseUpload(ctx, vid, file);
+    return { storedSrc: '', srcBackend: backend };
   }
 
-  /* --------------------------------------------------------
-     LONGS — Supabase primary, B2 fallback, Firebase last
-     -------------------------------------------------------- */
-
-  /* Try Supabase first */
-  if (ctx.supa) {
+  /* ---------- LONGS → Bunny Stream, fallback Firebase (only ≤ 8 MB) ---------- */
+  if (BUNNY_LIBRARY_ID && BUNNY_API_KEY) {
     try {
-      const key = `longs/${uid}/${vid}.${ext}`;
-      const url = await supabaseUpload(ctx.supa, file, key, onProgress);
-      return { storedSrc: url, srcBackend: 'supabase' };
+      const videoId = await bunnyUpload(file, title, onProgress);
+      return { storedSrc: videoId, srcBackend: 'bunny' };
     } catch (e) {
-      console.warn('[storage] Supabase Long upload failed, trying B2:', e?.message);
+      console.warn('[storage] Bunny Long failed:', e?.message);
     }
   }
 
-  /* B2 fallback */
-  try {
-    const key = b2KeyFor(uid, vid, ext, 'long');
-    await b2Upload(file, key, onProgress);
-    return { storedSrc: key, srcBackend: 'b2' };
-  } catch (e) {
-    console.warn('[storage] B2 Long fallback failed, trying Firebase:', e?.message);
-  }
-
-  /* Firebase last resort — only if file is small enough for RTDB */
+  /* Firebase fallback — only if the file fits in a single RTDB value */
   if (file.size && file.size <= 8 * 1024 * 1024) {
     const backend = await firebaseUpload(ctx, vid, file);
     return { storedSrc: '', srcBackend: backend };
   }
 
-  throw new Error('All storage backends rejected the Long upload');
+  throw new Error('Bunny Stream failed and file is too large for Firebase');
 }
 
-/* ---- Paste-URL path ---- */
 export function uploadFromUrl(url) {
   return { storedSrc: url, srcBackend: 'url' };
 }
 
 /* ============================================================
-   PUBLIC API — playback resolution
+   PUBLIC API — playback
    ============================================================ */
 export async function resolvePlaybackUrl(ctx, vid) {
   const v = ctx.state?.videos?.[vid];
@@ -291,32 +240,21 @@ export async function resolvePlaybackUrl(ctx, vid) {
 
   const backend = v.srcBackend || 'firebase';
 
-  /* B2 — re-sign on every playback since URLs expire */
-  if (backend === 'b2') {
-    const key = await readStoredSrc(ctx, vid);
-    if (!key) return '';
-    try {
-      return await b2PlaybackUrl(key);
-    } catch (e) {
-      console.warn('[storage] B2 sign failed:', e?.message);
-      return '';
-    }
+  if (backend === 'bunny') {
+    const videoId = await readStoredSrc(ctx, vid);
+    if (!videoId) return '';
+    return bunnyPublicUrl(videoId);
   }
 
-  /* Supabase / pasted URL — stored src IS the playback URL */
   if (backend === 'supabase' || backend === 'url' || backend === 'url-backup') {
     return await readStoredSrc(ctx, vid);
   }
 
-  /* Firebase / Firebase-backup — base64 in the DB */
   return await firebaseRead(ctx, vid, backend);
 }
 
 /* ============================================================
-   PUBLIC API — deletion
-   Firebase base64 entries get removed from the DB.
-   B2 and Supabase files stay in their buckets; we only drop the
-   Firebase pointer. Bucket cleanup is manual or scheduled.
+   PUBLIC API — delete
    ============================================================ */
 export async function deleteVideoSource(ctx, vid) {
   const v = ctx.state?.videos?.[vid];
@@ -331,18 +269,3 @@ export async function deleteVideoSource(ctx, vid) {
     try { await remove(ref(db, `pixeltube/videoSrc/${vid}`)); } catch (_) {}
   }
 }
-
-/* ============================================================
-   EXPORTS FOR ADVANCED USE
-   ============================================================ */
-export const storageInternals = {
-  b2Upload,
-  b2PlaybackUrl,
-  b2KeyFor,
-  supabaseUpload,
-  supabasePublicUrl,
-  firebaseUpload,
-  firebaseRead,
-  firebaseDelete,
-  fileToDataURL
-};

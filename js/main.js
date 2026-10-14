@@ -1,6 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
-  getDatabase, ref, onValue, get, set, remove, update, runTransaction
+  getDatabase, ref, onValue, get, set, remove, update, runTransaction, push
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -14,38 +14,17 @@ import {
 import * as storage from './storage.js';
 
 import {
-  viewFeed, viewSubs, viewLiked, viewPlaylists, viewPlaylist,
-  wireSearchInput, wireClearHistory
-} from './feed.js';
-
-import {
-  viewMiniViewer, viewMinis, setupMinis, resetMinisPagination
-} from './video_mini.js';
-
-import {
-  viewWatch, setupCommentForm
-} from './video_large.js';
-
-import {
-  viewChannel, promptCreateChannel, promptEditChannel
-} from './channel.js';
-
-import {
   promptReportVideo, promptGuidelines,
   canCurrentUserUpload, hasAcceptedGuidelines,
-  suspendChannel, unsuspendChannel, isUserSuspended
-} from './security.js';
-
-import { viewAdmin } from './admin.js';
-
-import {
-  viewPrivacy, viewTerms, viewGuidelines
-} from './legal.js';
+  suspendChannel, unsuspendChannel, isUserSuspended,
+  viewAdmin, isAdminUser
+} from './sec.js';
 
 import { viewStudio } from './studio.js';
+import { viewPrivacy, viewTerms, viewGuidelines } from './legal.js';
 
 /* ============================================================
-   FIREBASE — PRIMARY + BACKUP
+   FIREBASE — MAIN (videos, channels, subs, likes, comments)
    ============================================================ */
 const FIREBASE_PRIMARY = {
   apiKey: "AIzaSyBLc2W7w4F0XSnsNlHbmlaSyM982Ha2bhM",
@@ -57,6 +36,9 @@ const FIREBASE_PRIMARY = {
   appId: "1:899632202736:web:3b6de3d2e312bd6d6b5335"
 };
 
+/* ============================================================
+   FIREBASE — BACKUP (Mini storage failover)
+   ============================================================ */
 const FIREBASE_BACKUP = {
   apiKey: "AIzaSyDrhgWrgdhGb4z3w91bOXDb-LWlLYDEw7A",
   authDomain: "mass-control.firebaseapp.com",
@@ -68,15 +50,24 @@ const FIREBASE_BACKUP = {
 };
 
 /* ============================================================
-   SUPABASE — primary + backup
+   FIREBASE — STATS (analytics only)
+   ============================================================ */
+const FIREBASE_STATS = {
+  apiKey: "AIzaSyC_RoYfDWEEws0Byx_79QCOoQXARpjUp60",
+  authDomain: "pixquiz-5fd01.firebaseapp.com",
+  databaseURL: "https://pixquiz-5fd01-default-rtdb.firebaseio.com",
+  projectId: "pixquiz-5fd01",
+  storageBucket: "pixquiz-5fd01.firebasestorage.app",
+  messagingSenderId: "838894677501",
+  appId: "1:838894677501:web:489511ad3ddb1294547d94"
+};
+
+/* ============================================================
+   SUPABASE
    ============================================================ */
 const SUPABASE_PRIMARY = {
   url: 'https://finuvmxyymhfvmscmgac.supabase.co',
   key: 'sb_publishable_UAbpVV0jSe2h6aPkbYEgtw_kWzaT7qt'
-};
-const SUPABASE_BACKUP = {
-  url: 'https://xyxpppfvxlmhhhzgxhoz.supabase.co',
-  key: 'sb_publishable_k8tOw0gS2vAmGygtu8nMMw_FhUXSd_I'
 };
 
 const MAX_LONG_BYTES   = 50 * 1024 * 1024;
@@ -86,13 +77,9 @@ const MAX_MINI_SECONDS = 60;
 const MAX_EXTRA_CHANNELS = 5;
 
 let supaPrimary = null;
-let supaBackup  = null;
 try {
   supaPrimary = createClient(SUPABASE_PRIMARY.url, SUPABASE_PRIMARY.key, { auth: { persistSession: false } });
-} catch (e) { console.warn('[main.js] Supabase primary failed:', e); }
-try {
-  supaBackup = createClient(SUPABASE_BACKUP.url, SUPABASE_BACKUP.key, { auth: { persistSession: false } });
-} catch (e) { console.warn('[main.js] Supabase backup failed:', e); }
+} catch (e) { console.warn('[main.js] Supabase init failed:', e); }
 
 /* ============================================================
    PIXLECT AUTH
@@ -176,6 +163,7 @@ function handlePixlectMessage(d) {
     renderSidebar();
     render(true);
   });
+  statsLogEvent('signin', { username: clean.username });
   toast('Signed in as ' + clean.username + (isAdmin() ? ' (admin)' : ''));
   return true;
 }
@@ -206,6 +194,7 @@ const state = {
 
 let db = null;
 let dbBackup = null;
+let dbStats = null;
 let localDB = null;
 let lastData = null;
 let commentsUnsub = null;
@@ -290,6 +279,46 @@ function showStorageAlert(message) {
     sessionStorage.setItem('pixeltube_alert_dismissed', '1');
     bar.remove();
   };
+}
+
+/* ============================================================
+   STATS — analytics writes to the pixquiz-5fd01 project
+   ============================================================ */
+async function statsRegisterView(vid) {
+  if (!dbStats) return;
+  try {
+    await runTransaction(ref(dbStats, `pixeltube_stats/views/${vid}`), n => (Number(n) || 0) + 1);
+  } catch (e) { console.warn('[stats] registerView failed', e?.message); }
+}
+
+async function statsLogEvent(type, payload) {
+  if (!dbStats) return;
+  try {
+    const day = new Date().toISOString().slice(0, 10);
+    await push(ref(dbStats, `pixeltube_stats/events/${day}`), {
+      type,
+      ts: Date.now(),
+      uid: PIXELTUBE_stats_uid(),
+      ...payload
+    });
+    await runTransaction(ref(dbStats, `pixeltube_stats/daily/${day}/${type}`),
+      n => (Number(n) || 0) + 1);
+  } catch (e) { console.warn('[stats] logEvent failed', e?.message); }
+}
+
+function PIXELTUBE_stats_uid() {
+  return PIXLECT.user?.uid || 'anon';
+}
+
+async function statsFetchTotals() {
+  if (!dbStats) return { views: {}, daily: {}, events: 0 };
+  try {
+    const snap = await get(ref(dbStats, 'pixeltube_stats'));
+    return snap.val() || { views: {}, daily: {}, events: 0 };
+  } catch (e) {
+    console.warn('[stats] fetchTotals failed', e?.message);
+    return { views: {}, daily: {}, events: 0 };
+  }
 }
 
 /* ============================================================
@@ -398,6 +427,7 @@ async function createExtraChannel(data) {
   renderSidebar();
   render(true);
   toast('Channel created 🎉');
+  statsLogEvent('channel_create', { cid });
   return cid;
 }
 
@@ -426,6 +456,7 @@ async function deleteChannel(cid) {
     applyData(localDB);
   }
   toast('Channel deleted');
+  statsLogEvent('channel_delete', { cid });
   return true;
 }
 
@@ -437,10 +468,17 @@ async function boot() {
   try {
     const app = initializeApp(FIREBASE_PRIMARY, 'primary');
     db = getDatabase(app);
+
     try {
       const app2 = initializeApp(FIREBASE_BACKUP, 'backup');
       dbBackup = getDatabase(app2);
     } catch (e) { console.warn('[main.js] Backup Firebase init failed:', e); }
+
+    try {
+      const statsApp = initializeApp(FIREBASE_STATS, 'stats');
+      dbStats = getDatabase(statsApp);
+      console.log('[main.js] Stats Firebase ready');
+    } catch (e) { console.warn('[main.js] Stats Firebase init failed:', e); }
 
     state.mode = 'firebase';
 
@@ -569,6 +607,7 @@ async function toggleSub(cid) {
     persistLocal();
     applyData(localDB);
   }
+  statsLogEvent(on ? 'unsubscribe' : 'subscribe', { cid });
 }
 
 async function toggleLike(vid) {
@@ -603,6 +642,7 @@ async function toggleLike(vid) {
     persistLocal();
     applyData(localDB);
   }
+  statsLogEvent(on ? 'unlike' : 'like', { vid });
 }
 
 async function toggleDislike(vid) {
@@ -637,6 +677,7 @@ async function toggleDislike(vid) {
     persistLocal();
     applyData(localDB);
   }
+  statsLogEvent(on ? 'undislike' : 'dislike', { vid });
 }
 
 async function registerView(vid) {
@@ -649,6 +690,9 @@ async function registerView(vid) {
     const v = localDB.videos[vid];
     if (v) { v.views = (Number(v.views) || 0) + 1; persistLocal(); applyData(localDB); }
   }
+  /* Stats write — separate project, never blocks the main flow */
+  statsRegisterView(vid);
+  statsLogEvent('view', { vid });
 }
 
 /* ============================================================
@@ -747,6 +791,7 @@ async function createVideo(payload) {
       if (srcBackend !== 'firebase' && srcBackend !== 'firebase-backup') {
         await set(ref(db, `pixeltube/videoSrc/${vid}`), storedSrc);
       }
+      statsLogEvent('upload', { vid, kind, channelId: cid });
       return vid;
     } catch (e) {
       toast('Publish failed: ' + (e?.message || e));
@@ -759,6 +804,7 @@ async function createVideo(payload) {
     localDB.videoSrc[vid] = storedSrc;
     persistLocal();
     applyData(localDB);
+    statsLogEvent('upload', { vid, kind, channelId: cid });
     return vid;
   }
 }
@@ -779,6 +825,7 @@ async function deleteVideo(vid) {
     persistLocal();
     applyData(localDB);
   }
+  statsLogEvent('video_delete', { vid });
 }
 
 /* ============================================================
@@ -803,6 +850,7 @@ async function addComment(vid, text) {
     persistLocal();
     renderComments(vid, v);
   }
+  statsLogEvent('comment', { vid });
 }
 
 function subscribeComments(vid) {
@@ -907,6 +955,7 @@ const CTX = {
   state, PIXLECT, isAdmin,
   get db()      { return db; },
   get dbBackup() { return dbBackup; },
+  get dbStats() { return dbStats; },
   get localDB() { return localDB; },
   get supa()    { return supaPrimary; },
   SUPABASE_BUCKET: 'PIXELTUBE_VIDEOS',
@@ -929,6 +978,8 @@ const CTX = {
 
   hydrateVideosInView,
 
+  statsLogEvent, statsRegisterView, statsFetchTotals,
+
   get route() { return state.route; }
 };
 
@@ -936,6 +987,7 @@ window.__CTX = CTX;
 window.__PIXLECT = PIXLECT;
 window.__state = state;
 window.__isAdmin = isAdmin;
+window.__stats = { statsFetchTotals, statsLogEvent };
 
 /* ============================================================
    CARD BUILDERS
@@ -1395,7 +1447,10 @@ function render(force = false) {
   else if (page === 'playlists') view.innerHTML = viewPlaylists(CTX);
   else if (page === 'playlist')  view.innerHTML = viewPlaylist(CTX);
   else if (page === 'admin')     view.innerHTML = viewAdmin(CTX, arg || 'reports');
-  else if (page === 'studio')    view.innerHTML = viewStudio(CTX, arg || 'dashboard');
+  else if (page === 'studio')    {
+    view.innerHTML = viewStudio(CTX, arg || 'dashboard');
+    if (!arg || arg === 'dashboard') setupStudioStats();
+  }
   else if (page === 'privacy')   view.innerHTML = viewPrivacy();
   else if (page === 'terms')     view.innerHTML = viewTerms();
   else if (page === 'guidelines')view.innerHTML = viewGuidelines();
@@ -1431,8 +1486,603 @@ function syncDynamic() {
 }
 
 /* ============================================================
-   CREATE PAGE
+   STUDIO STATS
    ============================================================ */
+async function setupStudioStats() {
+  const totalEl = document.getElementById('studioStatsTotal');
+  const dailyEl = document.getElementById('studioStatsDaily');
+  if (!totalEl || !dbStats) return;
+
+  const data = await statsFetchTotals();
+  const total = Object.values(data.views || {}).reduce((s, n) => s + (Number(n) || 0), 0);
+  totalEl.textContent = fmt(total);
+
+  const days = Object.entries(data.daily || {}).sort().slice(-7).reverse();
+  if (!days.length) {
+    dailyEl.textContent = 'No activity yet today.';
+    return;
+  }
+  dailyEl.innerHTML = days.map(([day, events]) => {
+    const totalEvents = Object.values(events).reduce((s, n) => s + (Number(n) || 0), 0);
+    return `<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--line)">
+      <span>${esc(day)}</span><span><b>${totalEvents}</b> events</span>
+    </div>`;
+  }).join('');
+}
+
+/* ============================================================
+   FEED / SUBS / LIKED / PLAYLISTS / CHANNEL / WATCH / CREATE
+   (unchanged from previous version)
+   ============================================================ */
+function viewFeed(ctx) {
+  const { state, chanOf, videosSorted, cardHTML, shortCardHTML,
+          emptyState, hasChannel, PIXLECT } = ctx;
+
+  if (state.search && state.search.trim()) {
+    const q = state.search.trim().toLowerCase();
+    const tokens = q.split(/\s+/).filter(Boolean);
+    const matches = (t) => t && tokens.every(tok => String(t).toLowerCase().includes(tok));
+    const videos = videosSorted().filter(v => {
+      const c = chanOf(v.id);
+      return matches(v.title) || matches(v.desc) || matches(c.name);
+    });
+    const channels = Object.values(state.channels).filter(c =>
+      matches(c.name) || matches(c.handle)
+    ).sort((a, b) => (b.subs || 0) - (a.subs || 0));
+
+    if (!videos.length && !channels.length) {
+      return emptyState('🔍', `No results for "${state.search}"`, 'Try a different search term.', '');
+    }
+
+    const channelsBlock = channels.length ? `
+      <div class="page-head" style="padding-top:14px">
+        <h2 style="font-size:16px;font-weight:800">Channels</h2>
+        <p>${channels.length} result${channels.length === 1 ? '' : 's'}</p>
+      </div>
+      <div class="chan-grid">${channels.map(c => `
+        <a class="chan-card" href="#/channel/${esc(c.id)}">
+          ${avatarHTML(c, 'lg')}
+          <div class="chan-card-info">
+            <h3>${esc(c.name)}</h3>
+            <div class="sub">${esc(c.handle || '')} · ${fmt(subsOf(c.id))} subscriber${subsOf(c.id) === 1 ? '' : 's'}</div>
+          </div>
+        </a>`).join('')}</div>
+    ` : '';
+
+    const videosBlock = videos.length ? `
+      <div class="page-head" style="padding-top:14px">
+        <h2 style="font-size:16px;font-weight:800">Videos</h2>
+        <p>${videos.length} result${videos.length === 1 ? '' : 's'}</p>
+      </div>
+      <div class="grid">${videos.map(cardHTML).join('')}</div>
+    ` : '';
+
+    return `
+      <div class="page-head">
+        <h1>Results for "${esc(state.search)}"</h1>
+        <p>${channels.length} channel${channels.length === 1 ? '' : 's'} · ${videos.length} video${videos.length === 1 ? '' : 's'}</p>
+      </div>
+      ${channelsBlock}${videosBlock}`;
+  }
+
+  if (!hasSearchHistory()) {
+    return `
+      <div class="empty" style="padding:120px 24px">
+        <div class="big" style="font-size:56px">🔍</div>
+        <h2 style="font-size:22px;margin-bottom:10px">Search To Find Videos Here</h2>
+        <p style="max-width:420px">
+          The Feed is built from what you search for. Try searching for
+          <b style="color:var(--text)">Minecraft</b>,
+          <b style="color:var(--text)">music</b>, or
+          <b style="color:var(--text)">vlog</b> —
+          then come back here.
+        </p>
+      </div>`;
+  }
+
+  const hist = getSearchHistory();
+  const tokens = new Map();
+  hist.forEach((h, i) => {
+    const weight = Math.max(1, 20 - i);
+    h.q.split(/\s+/).filter(Boolean).forEach(tok => {
+      if (tok.length < 2) return;
+      tokens.set(tok, (tokens.get(tok) || 0) + weight);
+    });
+  });
+
+  const scored = videosSorted()
+    .map(v => {
+      const c = chanOf(v.id);
+      let s = 0;
+      tokens.forEach((w, tok) => {
+        if ((v.title || '').toLowerCase().includes(tok)) s += 6 * w;
+        if ((v.desc || '').toLowerCase().includes(tok))  s += 3 * w;
+        if ((c.name || '').toLowerCase().includes(tok))  s += 4 * w;
+      });
+      return { v, s };
+    })
+    .filter(x => x.s > 0)
+    .sort((a, b) => b.s - a.s);
+
+  if (!scored.length) {
+    const latest = hist[0]?.q || '';
+    return `
+      <div class="empty" style="padding:120px 24px">
+        <div class="big" style="font-size:56px">🎬</div>
+        <h2 style="font-size:22px;margin-bottom:10px">No videos match yet</h2>
+        <p style="max-width:420px">
+          We found your recent search${latest ? ` for <b style="color:var(--text)">"${esc(latest)}"</b>` : ''},
+          but nobody has uploaded anything matching it yet.
+        </p>
+      </div>`;
+  }
+
+  const top = scored.slice(0, 40).map(x => x.v);
+  const longs = top.filter(v => v.kind !== 'mini');
+  const minis = top.filter(v => v.kind === 'mini');
+
+  const minisShelf = minis.length ? `
+    <section class="shorts-shelf">
+      <div class="shelf-head">
+        <div class="icon"><svg viewBox="0 0 24 24"><path d="M13 2L4.5 13H11l-1 9L18.5 11H12z"/></svg></div>
+        <h2>Minis for you</h2>
+        <a href="#/minis" style="margin-left:auto;font-size:13px;color:var(--muted);font-weight:700">View all →</a>
+      </div>
+      <div class="shorts-rail">${minis.slice(0, 12).map(shortCardHTML).join('')}</div>
+    </section>` : '';
+
+  return `
+    <div class="page-head">
+      <h1>Feed</h1>
+      <p>${scored.length} video${scored.length === 1 ? '' : 's'} based on your searches</p>
+    </div>
+    ${minisShelf}
+    ${longs.length ? `<div class="grid">${longs.map(cardHTML).join('')}</div>` : ''}`;
+}
+
+function viewSubs(ctx) {
+  const { state, videosSorted, cardHTML, emptyState, PIXLECT } = ctx;
+  const ids = Object.keys(state.subs);
+  if (!ids.length) {
+    return emptyState('📺', 'No subscriptions yet',
+      PIXLECT.user ? 'Subscribe to channels and their newest videos show up here.' : 'Sign in with PIXLECT to subscribe.',
+      PIXLECT.user ? '' : `<button class="btn-primary" onclick="window.dispatchEvent(new Event('pixeltube:signin'))" type="button">Sign in with PIXLECT</button>`);
+  }
+  const list = videosSorted().filter(v => state.subs[v.channelId]);
+  return `
+    <div class="page-head">
+      <h1>Subscriptions</h1>
+      <p>${ids.length} channel${ids.length === 1 ? '' : 's'} · ${list.length} video${list.length === 1 ? '' : 's'}</p>
+    </div>
+    ${list.length ? `<div class="grid">${list.map(cardHTML).join('')}</div>`
+      : emptyState('📭', 'Nothing new yet', 'Channels you subscribe to haven\'t uploaded anything.', '')}`;
+}
+
+function viewLiked(ctx) {
+  const { state, videosSorted, cardHTML, emptyState, PIXLECT } = ctx;
+  const ids = Object.keys(state.likes);
+  if (!ids.length) {
+    return emptyState('👍', 'No liked videos',
+      PIXLECT.user ? 'Videos you like are saved here.' : 'Sign in with PIXLECT to save likes.',
+      PIXLECT.user ? '' : `<button class="btn-primary" onclick="window.dispatchEvent(new Event('pixeltube:signin'))" type="button">Sign in with PIXLECT</button>`);
+  }
+  const list = videosSorted().filter(v => state.likes[v.id]);
+  return `
+    <div class="page-head"><h1>Liked videos</h1><p>${list.length} video${list.length === 1 ? '' : 's'}</p></div>
+    <div class="grid">${list.map(cardHTML).join('')}</div>`;
+}
+
+function viewPlaylists(ctx) {
+  const { playlistsOfUser, playlistVideos, esc, timeAgo, emptyState, PIXLECT } = ctx;
+  if (!PIXLECT.user) {
+    return emptyState('🎵', 'Sign in to use playlists', 'Playlists let you group videos and watch them in sequence.',
+      `<button class="btn-primary" onclick="window.dispatchEvent(new Event('pixeltube:signin'))" type="button">Sign in with PIXLECT</button>`);
+  }
+  const pls = playlistsOfUser();
+  return `
+    <div class="page-head">
+      <h1>Your playlists</h1>
+      <p>${pls.length} playlist${pls.length === 1 ? '' : 's'}</p>
+      <button class="btn-primary" id="newPlaylistBtn" type="button" style="margin-left:auto">+ New playlist</button>
+    </div>
+    ${pls.length ? `<div class="grid">${pls.map(pl => {
+      const vids = playlistVideos(pl.id);
+      return `<a class="card" href="#/playlist/${esc(pl.id)}">
+        <div class="thumb" style="background:linear-gradient(135deg,var(--accent),var(--accent2));display:grid;place-items:center">
+          <svg viewBox="0 0 24 24" width="52" height="52" fill="rgba(255,255,255,.9)"><path d="M3 6h13v2H3zm0 5h13v2H3zm0 5h9v2H3zm14-1v6l5-3z"/></svg>
+          <span class="dur">${vids.length} video${vids.length === 1 ? '' : 's'}</span>
+        </div>
+        <div class="info"><div style="min-width:0">
+          <h3>${esc(pl.name)}</h3>
+          <div class="sub">${vids.length ? 'Updated ' + esc(timeAgo(vids[0].createdAt)) : 'Empty playlist'}</div>
+        </div></div>
+      </a>`;
+    }).join('')}</div>` : emptyState('🎵', 'No playlists yet', 'Create your first playlist to organize videos.', '')}`;
+}
+
+function viewPlaylist(ctx) {
+  const { state, route, playlistVideos, chanOf, esc, fmt, thumbHTML, emptyState, PIXLECT } = ctx;
+  const pid = route[1];
+  const pl = state.playlists[pid];
+  if (!pl) return emptyState('🚫', 'Playlist not found', '', `<a class="btn-ghost" href="#/playlists">Back to playlists</a>`);
+  const vids = playlistVideos(pid);
+  const isOwner = PIXLECT.user && pl.ownerUid === PIXLECT.user.uid;
+
+  return `
+    <div class="playlist-header">
+      <div class="playlist-cover">
+        <svg viewBox="0 0 24 24"><path d="M3 6h13v2H3zm0 5h13v2H3zm0 5h9v2H3zm14-1v6l5-3z"/></svg>
+      </div>
+      <div class="txt">
+        <h1>${esc(pl.name)}</h1>
+        <div class="meta">${esc(pl.ownerName || 'user')} · ${vids.length} video${vids.length === 1 ? '' : 's'}</div>
+      </div>
+      ${isOwner ? `<button class="btn-secondary" id="plDeleteBtn" type="button" style="color:var(--accent)">Delete playlist</button>` : ''}
+    </div>
+    ${vids.length ? `<div class="playlist-videos">
+      ${vids.map((v, i) => {
+        const c = chanOf(v.id);
+        return `<div class="pl-item" data-pl-item="${esc(v.id)}">
+          <div class="idx">${i + 1}</div>
+          <a class="t" href="#/watch/${esc(v.id)}">${thumbHTML(v)}<span class="dur">${esc(v.dur)}</span></a>
+          <div class="info">
+            <a href="#/watch/${esc(v.id)}"><h4>${esc(v.title)}</h4></a>
+            <div class="sub">${esc(c.name)} · ${fmt(v.views)} views</div>
+          </div>
+          ${isOwner ? `<button class="remove" data-action="pl-remove" data-pid="${esc(pid)}" data-vid="${esc(v.id)}" type="button">Remove</button>` : ''}
+        </div>`;
+      }).join('')}
+    </div>` : emptyState('📭', 'This playlist is empty', isOwner ? 'Add videos from any watch page.' : '', '')}`;
+}
+
+function viewChannel(ctx, cid) {
+  const { state, videosSorted, cardHTML, shortCardHTML, emptyState,
+          subsOf, isSubbed, PIXLECT, myChannels } = ctx;
+  const c = state.channels[cid];
+  if (!c) return emptyState('🚫', 'Channel not found', '', `<a class="btn-ghost" href="#/">Go to Feed</a>`);
+
+  const list = videosSorted().filter(v => v.channelId === cid);
+  const longs = list.filter(v => v.kind !== 'mini');
+  const minis = list.filter(v => v.kind === 'mini');
+  const subbed = isSubbed(cid);
+  const myIds = (myChannels() || []).map(x => x.id);
+  const isMine = PIXLECT.user && c.ownerUid === PIXLECT.user.uid && myIds.includes(cid);
+  const isActive = PIXLECT.user && state.activeChannelId === cid;
+
+  const bannerStyle = c.banner
+    ? `background-image:url('${esc(c.banner)}')`
+    : `background:linear-gradient(120deg,${esc(c.color || '#38bdf8')},#12121a 70%)`;
+
+  const actions = isMine
+    ? `<div style="display:flex;gap:8px;flex-wrap:wrap">
+         ${!isActive ? `<button class="btn-primary" id="makeActiveBtn" data-cid="${esc(cid)}" type="button" style="font-size:13px;padding:9px 16px">Set as active</button>` : ''}
+         <button class="btn-secondary" id="editChBtn" type="button" style="font-size:13px;padding:9px 16px">Edit channel</button>
+       </div>`
+    : `<button class="btn-sub ${subbed ? 'subbed' : ''}" data-action="sub" data-channel="${esc(cid)}" data-dyn="sub" type="button">${subbed ? 'Subscribed' : 'Subscribe'}</button>`;
+
+  return `
+    <div class="banner" style="${bannerStyle}"></div>
+    <div class="chan-head">
+      ${avatarHTML(c, 'lg')}
+      <div class="txt">
+        <h1>${esc(c.name)}</h1>
+        <div class="meta">
+          ${esc(c.handle)} ·
+          <span data-dyn="subcount" data-channel="${esc(cid)}">${fmt(subsOf(cid))} subscribers</span> ·
+          ${list.length} video${list.length === 1 ? '' : 's'}
+        </div>
+      </div>
+      ${actions}
+    </div>
+    ${minis.length ? `
+      <section class="shorts-shelf">
+        <div class="shelf-head">
+          <div class="icon"><svg viewBox="0 0 24 24"><path d="M13 2L4.5 13H11l-1 9L18.5 11H12z"/></svg></div>
+          <h2>Minis</h2>
+        </div>
+        <div class="shorts-rail">${minis.map(shortCardHTML).join('')}</div>
+      </section>` : ''}
+    ${longs.length
+      ? `<div class="grid">${longs.map(cardHTML).join('')}</div>`
+      : (minis.length ? '' : emptyState('📭', 'No videos on this channel yet', 'When they upload, they\'ll appear here.', ''))}`;
+}
+
+function viewWatch(ctx, vid) {
+  const {
+    state, chanOf,
+    isLiked, isDisliked, isSubbed,
+    subsOf, likesOf, dislikesOf, viewsOf,
+    videosSorted, playlistsOfUser,
+    emptyState, PIXLECT, myChannel, isAdmin
+  } = ctx;
+
+  const v = state.videos[vid];
+  if (!v) return emptyState('🚫', 'Video not found', 'It may have been removed.',
+    `<a class="btn-ghost" href="#/">Go to Feed</a>`);
+
+  const c = chanOf(vid);
+  const liked = isLiked(vid);
+  const disliked = isDisliked(vid);
+  const subbed = isSubbed(c.id);
+  const isMine = PIXLECT.user && v.createdBy === PIXLECT.user.uid;
+  const canDelete = isMine || isAdmin();
+  const canReport = PIXLECT.user && !isMine;
+
+  const upNext = videosSorted().filter(x => x.id !== vid)
+    .sort((a, b) => (b.channelId === c.id) - (a.channelId === c.id))
+    .slice(0, 10);
+
+  const userIcon = PIXLECT.user
+    ? (myChannel()?.avatar
+        ? `<span class="pic"><img src="${esc(myChannel().avatar)}" alt=""></span>`
+        : `<span class="pic" style="background:${esc(myChannel()?.color || PIXLECT.user.icon?.bg || '#38bdf8')}">${esc(myChannel() ? initial(myChannel().name) : (PIXLECT.user.icon?.emoji || '👤'))}</span>`)
+    : `<span class="pic" style="background:#2a2a36">👤</span>`;
+
+  const commentForm = PIXLECT.user
+    ? `<form class="comment-form" id="commentForm">
+         ${userIcon}
+         <div class="input-wrap">
+           <textarea id="commentText" placeholder="Add a comment…" maxlength="2000"></textarea>
+           <div class="actions">
+             <button type="button" class="btn-secondary" id="commentCancel">Cancel</button>
+             <button type="submit" class="btn-primary" id="commentSubmit" disabled>Comment</button>
+           </div>
+         </div>
+       </form>`
+    : `<div class="no-comments">Sign in with PIXLECT to join the conversation.</div>`;
+
+  const myPls = playlistsOfUser();
+  const plMenu = myPls.length
+    ? `<div style="position:relative">
+         <button class="pill" id="savePlBtn" type="button">
+           <svg viewBox="0 0 24 24"><path d="M3 6h13v2H3zm0 5h13v2H3zm0 5h9v2H3zm14-1v6l5-3z"/></svg>
+           Save
+         </button>
+         <div id="savePlMenu" style="display:none;position:absolute;top:calc(100% + 8px);right:0;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:6px;min-width:220px;box-shadow:0 18px 50px rgba(0,0,0,.7);z-index:90">
+           ${myPls.map(pl => `
+             <button data-action="pl-add" data-pid="${esc(pl.id)}" data-vid="${esc(vid)}" type="button"
+                     style="display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:9px 12px;border-radius:8px;font-size:13.5px;font-weight:600;color:var(--text)">
+               <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" opacity="0.7"><path d="M3 6h13v2H3zm0 5h13v2H3zm0 5h9v2H3zm14-1v6l5-3z"/></svg>
+               ${esc(pl.name)}
+             </button>`).join('')}
+           <div style="height:1px;background:var(--line);margin:6px 4px"></div>
+           <button id="newPlBtn" type="button"
+                   style="display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:9px 12px;border-radius:8px;font-size:13.5px;font-weight:600;color:var(--text)">
+             <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" opacity="0.7"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6z"/></svg>
+             New playlist
+           </button>
+         </div>
+       </div>`
+    : `<button class="pill" id="newPlBtn" type="button">
+         <svg viewBox="0 0 24 24"><path d="M3 6h13v2H3zm0 5h13v2H3zm0 5h9v2H3zm14-1v6l5-3z"/></svg>
+         Save
+       </button>`;
+
+  const reportBtn = canReport
+    ? `<button class="pill" data-action="report-video" data-video="${esc(vid)}" type="button">
+         <svg viewBox="0 0 24 24"><path d="M12 2L1 21h22zM13 18h-2v-2h2zm0-4h-2V9h2z"/></svg>
+         Report
+       </button>` : '';
+
+  const deleteBtn = canDelete
+    ? `<button class="pill" data-action="del-video" data-video="${esc(vid)}" type="button" style="color:var(--accent)">
+         <svg viewBox="0 0 24 24"><path d="M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6zM19 4h-3.5l-1-1h-5l-1 1H5v2h14z"/></svg>
+         Delete
+       </button>` : '';
+
+  const adminTag = isAdmin()
+    ? `<span style="display:inline-flex;align-items:center;gap:4px;margin-left:8px;font-size:10.5px;font-weight:800;letter-spacing:.5px;color:var(--warn);background:rgba(251,191,36,.12);padding:3px 8px;border-radius:99px;border:1px solid rgba(251,191,36,.35)">ADMIN</span>`
+    : '';
+
+  return `
+  <div class="watch">
+    <div>
+      <div class="player">
+        <div class="loading">Loading video…</div>
+        <video data-vid="${esc(vid)}" controls autoplay playsinline poster="${esc(v.thumb || '')}"></video>
+      </div>
+      <h1 class="w-title">${esc(v.title)}</h1>
+      <div class="w-row">
+        <div class="w-chan">
+          ${avatarHTML(c, 'lg')}
+          <div style="min-width:0">
+            <a class="nm" href="#/channel/${esc(c.id)}">${esc(c.name)}</a>${adminTag}
+            <div class="sb" data-dyn="subcount" data-channel="${esc(c.id)}">${fmt(subsOf(c.id))} subscribers</div>
+          </div>
+        </div>
+        <button class="btn-sub ${subbed ? 'subbed' : ''}" data-action="sub" data-channel="${esc(c.id)}" data-dyn="sub" type="button">${subbed ? 'Subscribed' : 'Subscribe'}</button>
+        <button class="pill ${liked ? 'active' : ''}" data-action="like" data-video="${esc(vid)}" data-dyn="like" type="button">
+          <svg viewBox="0 0 24 24"><path d="M2 20h3V9H2zm19.8-9.4c0-.9-.7-1.6-1.6-1.6h-5l.8-3.9.03-.3c0-.3-.1-.6-.3-.8L14.9 3 9.4 8.6c-.3.2-.4.6-.4.9V18c0 .9.7 1.6 1.6 1.6h7.2c.7 0 1.2-.4 1.4-1l2.4-5.7c.1-.2.1-.4.1-.6z"/></svg>
+          <span class="lbl">${fmt(likesOf(vid))}</span>
+        </button>
+        <button class="pill ${disliked ? 'active' : ''}" data-action="dislike" data-video="${esc(vid)}" data-dyn="dislike" type="button">
+          <svg viewBox="0 0 24 24"><path d="M2 4h3v11H2zm19.8 9.4c0 .9-.7 1.6-1.6 1.6h-5l.8 3.9.03.3c0 .3-.1.6-.3.8L14.9 21l-5.5-5.6c-.3-.2-.4-.6-.4-.9V6c0-.9.7-1.6 1.6-1.6h7.2c.7 0 1.2.4 1.4 1l2.4 5.7c.1.2.1.4.1.6z"/></svg>
+          <span class="lbl">${fmt(dislikesOf(vid))}</span>
+        </button>
+        ${plMenu}
+        <button class="pill" data-action="share" data-video="${esc(vid)}" type="button">
+          <svg viewBox="0 0 24 24"><path d="M14 9V5l7 7-7 7v-4.1C9.5 12.9 5.6 14.4 3 18c.5-4.5 2.9-8 11-9z"/></svg>
+          Share
+        </button>
+        ${reportBtn}
+        ${deleteBtn}
+      </div>
+      <div class="desc">
+        <span class="stats">
+          <span data-dyn="views" data-video="${esc(vid)}">${fmt(viewsOf(vid))} views</span>
+          · ${esc(timeAgo(v.createdAt))} · ${fmt(likesOf(vid))} likes · ${fmt(dislikesOf(vid))} dislikes
+          · ${v.kind === 'mini' ? 'Mini' : 'Long'}
+        </span>
+        ${esc(v.desc || '')}
+      </div>
+      <section class="comments">
+        <h2>Comments</h2>
+        ${commentForm}
+        <div class="comment-list" id="commentList"><div class="no-comments">Loading comments…</div></div>
+      </section>
+    </div>
+    <aside class="upnext">
+      <h2>Up next</h2>
+      ${upNext.length ? upNext.map(x => {
+        const xc = chanOf(x.id);
+        return `<a class="mini-card" href="#/watch/${esc(x.id)}">
+          <div class="t">${thumbHTML(x)}<span class="dur">${esc(x.dur)}</span></div>
+          <div style="min-width:0">
+            <h4>${esc(x.title)}</h4>
+            <div class="sub">${esc(xc.name)}</div>
+            <div class="sub">${fmt(x.views)} views · ${esc(timeAgo(x.createdAt))}</div>
+          </div>
+        </a>`;
+      }).join('') : `<div class="no-comments">No other videos yet.</div>`}
+    </aside>
+  </div>`;
+}
+
+function setupCommentForm(ctx, vid) {
+  const { createPlaylist, addToPlaylist, toast, addComment } = ctx;
+  const form = document.getElementById('commentForm');
+  if (form) {
+    const ta = document.getElementById('commentText');
+    const submit = document.getElementById('commentSubmit');
+    const cancel = document.getElementById('commentCancel');
+    ta.addEventListener('input', () => { submit.disabled = !ta.value.trim(); });
+    cancel.addEventListener('click', () => { ta.value = ''; submit.disabled = true; });
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const text = ta.value.trim();
+      if (!text) return;
+      submit.disabled = true;
+      submit.textContent = 'Posting…';
+      await addComment(vid, text);
+      ta.value = '';
+      submit.textContent = 'Comment';
+    });
+  }
+  const saveBtn = document.getElementById('savePlBtn');
+  const saveMenu = document.getElementById('savePlMenu');
+  if (saveBtn && saveMenu) {
+    saveBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      saveMenu.style.display = saveMenu.style.display === 'none' ? 'block' : 'none';
+    });
+    document.addEventListener('click', () => { saveMenu.style.display = 'none'; });
+  }
+  const newPlBtn = document.getElementById('newPlBtn');
+  if (newPlBtn) {
+    newPlBtn.addEventListener('click', () => {
+      const name = prompt('Playlist name:');
+      if (!name) return;
+      createPlaylist(name).then((pid) => {
+        if (!pid) return;
+        addToPlaylist(pid, vid);
+        toast('Saved to "' + name + '"');
+        if (saveMenu) saveMenu.style.display = 'none';
+      });
+    });
+  }
+}
+
+function viewMinis(ctx) {
+  const { minisSorted, emptyState, hasChannel, PIXLECT } = ctx;
+  const list = minisSorted();
+  if (!list.length) {
+    return emptyState('⚡', 'No Minis yet',
+      PIXLECT.user ? (hasChannel() ? 'Upload a Mini to fill this feed.' : 'Create your channel to upload Minis.')
+                  : 'Sign in with PIXLECT to upload Minis.',
+      PIXLECT.user ? (hasChannel() ? `<a class="btn-ghost" href="#/create">Upload a Mini</a>`
+                                   : `<button class="btn-primary" id="emptyCreateChannel" type="button">Create your PIXELChannel</button>`)
+                   : `<button class="btn-primary" onclick="window.dispatchEvent(new Event('pixeltube:signin'))" type="button">Sign in with PIXLECT</button>`);
+  }
+  return list.map(v => miniSectionHTML(v, ctx, false)).join('');
+}
+
+function viewMiniViewer(ctx, currentVid) {
+  const { minisSorted, emptyState } = ctx;
+  const list = minisSorted();
+  if (!list.length) return emptyState('⚡', 'Mini not found', '', `<a class="btn-ghost" href="#/minis">Back to Minis</a>`);
+  const exists = list.some(v => v.id === currentVid);
+  const ordered = exists ? [list.find(v => v.id === currentVid), ...list.filter(v => v.id !== currentVid)] : list;
+  return ordered.map(v => miniSectionHTML(v, ctx, true)).join('');
+}
+
+function miniSectionHTML(v, ctx, viewerMode) {
+  const { chanOf, PIXLECT, isAdmin } = ctx;
+  const c = chanOf(v.id);
+  const isMine = PIXLECT.user && v.createdBy === PIXLECT.user.uid;
+  const canDelete = isMine || isAdmin();
+  const canReport = PIXLECT.user && !isMine;
+
+  return `
+    <section class="mini" data-mini="${esc(v.id)}" ${viewerMode ? `id="mini-${esc(v.id)}"` : ''}>
+      <div class="mini-inner">
+        <video data-vid="${esc(v.id)}" loop playsinline preload="metadata" poster="${esc(v.thumb || '')}"></video>
+        <div class="shade"></div>
+        <button class="mute-btn" data-action="mute" type="button">🔊</button>
+        ${viewerMode ? `<a class="mini-close" href="#/minis" title="Back to Minis">✕</a>` : ''}
+
+        <div class="rail">
+          <button class="rail-btn" data-action="like" data-video="${esc(v.id)}" data-dyn="like" type="button">
+            <span class="circ"><svg viewBox="0 0 24 24"><path d="M2 20h3V9H2zm19.8-9.4c0-.9-.7-1.6-1.6-1.6h-5l.8-3.9.03-.3c0-.3-.1-.6-.3-.8L14.9 3 9.4 8.6c-.3.2-.4.6-.4.9V18c0 .9.7 1.6 1.6 1.6h7.2c.7 0 1.2-.4 1.4-1l2.4-5.7c.1-.2.1-.4.1-.6z"/></svg></span>
+            <span class="lbl">${fmt(v.likes)}</span>
+          </button>
+          <button class="rail-btn" data-action="dislike" data-video="${esc(v.id)}" data-dyn="dislike" type="button">
+            <span class="circ"><svg viewBox="0 0 24 24"><path d="M2 4h3v11H2zm19.8 9.4c0 .9-.7 1.6-1.6 1.6h-5l.8 3.9.03.3c0 .3-.1.6-.3.8L14.9 21l-5.5-5.6c-.3-.2-.4-.6-.4-.9V6c0-.9.7-1.6 1.6-1.6h7.2c.7 0 1.2.4 1.4 1l2.4 5.7c.1.2.1.4.1.6z"/></svg></span>
+            <span class="lbl">${fmt(v.dislikes)}</span>
+          </button>
+          <button class="rail-btn" data-action="sub" data-channel="${esc(c.id)}" data-dyn="sub" type="button">
+            <span class="circ"><svg viewBox="0 0 24 24"><path d="M12 12a5 5 0 1 0-5-5 5 5 0 0 0 5 5zm0 2c-4 0-8 2-8 4.5V21h16v-2.5C20 16 16 14 12 14z"/></svg></span>
+          </button>
+          <button class="rail-btn" data-action="share" data-video="${esc(v.id)}" type="button">
+            <span class="circ"><svg viewBox="0 0 24 24"><path d="M14 9V5l7 7-7 7v-4.1C9.5 12.9 5.6 14.4 3 18c.5-4.5 2.9-8 11-9z"/></svg></span>
+          </button>
+          ${canReport ? `
+          <button class="rail-btn" data-action="report-video" data-video="${esc(v.id)}" type="button">
+            <span class="circ"><svg viewBox="0 0 24 24"><path d="M12 2L1 21h22zM13 18h-2v-2h2zm0-4h-2V9h2z"/></svg></span>
+            <span class="lbl">Report</span>
+          </button>` : ''}
+          ${canDelete ? `
+          <button class="rail-btn" data-action="del-video" data-video="${esc(v.id)}" type="button" style="color:var(--accent)">
+            <span class="circ"><svg viewBox="0 0 24 24"><path d="M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6zM19 4h-3.5l-1-1h-5l-1 1H5v2h14z"/></svg></span>
+            <span class="lbl">Delete</span>
+          </button>` : ''}
+        </div>
+
+        <div class="bottom">
+          <div class="ch">${avatarHTML(c, 'sm')}<a class="nm" href="#/channel/${esc(c.id)}">${esc(c.name)}</a></div>
+          <h3>${esc(v.title)}</h3>
+          <div class="views" data-dyn="views" data-video="${esc(v.id)}">${fmt(v.views)} views</div>
+        </div>
+      </div>
+    </section>`;
+}
+
+let miniObserver = null;
+function setupMinis(ctx) {
+  const { registerView } = ctx;
+  if (miniObserver) miniObserver.disconnect();
+  const vids = document.querySelectorAll('.mini video');
+  if (!vids.length) return;
+  miniObserver = new IntersectionObserver(entries => {
+    entries.forEach(en => {
+      const v = en.target;
+      if (en.isIntersecting && en.intersectionRatio > 0.6) {
+        v.play().catch(() => {
+          v.muted = true;
+          const btn = v.parentElement.querySelector('.mute-btn');
+          if (btn) btn.textContent = '🔇';
+          v.play().catch(() => {});
+        });
+        if (v.dataset.vid) registerView(v.dataset.vid);
+      } else {
+        v.pause();
+      }
+    });
+  }, { threshold: [0, 0.6, 1] });
+  vids.forEach(v => miniObserver.observe(v));
+}
+
+function resetMinisPagination() { /* no-op in this build */ }
+
 function viewCreate() {
   if (!PIXLECT.user) {
     return emptyState('🎬', 'Sign in to upload',
@@ -1444,14 +2094,14 @@ function viewCreate() {
   if (block && block.reason === 'suspended') {
     const info = block.info || {};
     return emptyState('🚫', 'Your account is suspended',
-      `Reason: ${esc(info.reason || 'Violation of community guidelines')}. If you believe this is a mistake, contact support.`,
+      `Reason: ${esc(info.reason || 'Violation of community guidelines')}.`,
       `<a class="btn-ghost" href="#/guidelines">Read Community Guidelines</a>`);
   }
 
   const channels = myChannels();
   if (!channels.length) {
     return emptyState('🎬', 'Create your PIXELChannel first',
-      'Before uploading, you need a PIXELChannel. It takes ten seconds.',
+      'Before uploading, you need a PIXELChannel.',
       `<button class="btn-primary" id="createChannelBtn" type="button">Create PIXELChannel</button>`);
   }
   const ch = myChannel();
@@ -1462,7 +2112,7 @@ function viewCreate() {
   return `
     <div class="form-wrap">
       <h1>Upload to PIXELTube</h1>
-      <p class="lede">Publishing to <b>${esc(ch.name)}</b>. Minis go to Firebase, Longs to Supabase / B2. By uploading, you agree to our <a href="#/guidelines" style="color:var(--accent)">Community Guidelines</a>.</p>
+      <p class="lede">Publishing to <b>${esc(ch.name)}</b>. By uploading, you agree to our <a href="#/guidelines" style="color:var(--accent)">Community Guidelines</a>.</p>
       <form id="createForm" autocomplete="off">
         ${channels.length > 1 ? `
         <div class="field">
@@ -1508,7 +2158,7 @@ function viewCreate() {
         <div class="field">
           <label>Thumbnail</label>
           <div class="thumb-preview" id="thumbPreview">
-            <div class="empty" id="thumbPreviewEmpty">No thumbnail yet — upload a video to auto‑generate one, or pick your own below.</div>
+            <div class="empty" id="thumbPreviewEmpty">No thumbnail yet — upload a video to auto‑generate one.</div>
             <img id="thumbPreviewImg" style="display:none" alt="" />
             <span class="badge" id="thumbPreviewBadge" style="display:none">AUTO</span>
           </div>
@@ -1543,8 +2193,8 @@ function viewCreate() {
           <div class="field">
             <label for="f-kind">Type</label>
             <select id="f-kind">
-              <option value="long">Long (Supabase / B2 · up to 8 min / 50 MB)</option>
-              <option value="mini">Mini / Short (Firebase · up to 1 min / 8 MB)</option>
+              <option value="long">Long</option>
+              <option value="mini">Mini / Short</option>
             </select>
           </div>
           <div class="field">
@@ -1820,11 +2470,9 @@ function setupCreateForm() {
 
     const thumb = currentThumb();
     btn.disabled = true;
-    btn.textContent = kind === 'mini' ? 'Saving…' : 'Uploading…';
+    btn.textContent = 'Uploading…';
 
-    const vid = await createVideo({
-      title, src, thumb, kind, dur, desc, file
-    });
+    const vid = await createVideo({ title, src, thumb, kind, dur, desc, file });
 
     if (vid) {
       toast('Video published 🎉');
@@ -1866,18 +2514,10 @@ document.addEventListener('click', async (e) => {
   }
 
   if (e.target.id === 'makeActiveBtn') {
-    const cid = e.target.dataset.cid;
-    await setActiveChannel(cid);
+    await setActiveChannel(e.target.dataset.cid);
     renderTopbar();
     renderSidebar();
     render(true);
-    return;
-  }
-  if (e.target.id === 'deleteChBtn') {
-    const cid = e.target.dataset.cid;
-    if (!confirm('Delete this channel permanently?')) return;
-    const ok = await deleteChannel(cid);
-    if (ok) { location.hash = '#/'; renderTopbar(); renderSidebar(); render(true); }
     return;
   }
   if (e.target.id === 'editChBtn') {
@@ -1923,13 +2563,10 @@ document.addEventListener('click', async (e) => {
     (async () => {
       try {
         await update(ref(db, `pixeltube/reports/${el.dataset.rid}`), {
-          status: 'resolved',
-          resolvedAt: Date.now(),
-          resolvedBy: PIXLECT.user.username,
-          action: 'dismissed'
+          status: 'resolved', resolvedAt: Date.now(),
+          resolvedBy: PIXLECT.user.username, action: 'dismissed'
         });
-        toast('Report dismissed');
-        render(true);
+        toast('Report dismissed'); render(true);
       } catch (err) { console.error(err); toast('Could not dismiss'); }
     })();
     return;
@@ -1941,20 +2578,17 @@ document.addEventListener('click', async (e) => {
       await deleteVideo(el.dataset.vid);
       try {
         await update(ref(db, `pixeltube/reports/${el.dataset.rid}`), {
-          status: 'resolved',
-          resolvedAt: Date.now(),
-          resolvedBy: PIXLECT.user.username,
-          action: 'deleted-video'
+          status: 'resolved', resolvedAt: Date.now(),
+          resolvedBy: PIXLECT.user.username, action: 'deleted-video'
         });
       } catch (_) {}
-      toast('Video deleted and report resolved');
-      render(true);
+      toast('Video deleted and report resolved'); render(true);
     })();
     return;
   }
   if (action === 'admin-suspend') {
     e.preventDefault();
-    const reason = prompt('Reason for suspension (shown to the channel owner):');
+    const reason = prompt('Reason for suspension:');
     if (!reason) return;
     (async () => {
       const ok = await suspendChannel(CTX, el.dataset.cid, reason);
@@ -1962,10 +2596,8 @@ document.addEventListener('click', async (e) => {
       if (el.dataset.rid) {
         try {
           await update(ref(db, `pixeltube/reports/${el.dataset.rid}`), {
-            status: 'resolved',
-            resolvedAt: Date.now(),
-            resolvedBy: PIXLECT.user.username,
-            action: 'suspended-channel'
+            status: 'resolved', resolvedAt: Date.now(),
+            resolvedBy: PIXLECT.user.username, action: 'suspended-channel'
           });
         } catch (_) {}
       }
@@ -1976,17 +2608,12 @@ document.addEventListener('click', async (e) => {
   if (action === 'admin-delete-standalone') {
     e.preventDefault();
     if (!confirm('Delete this video permanently?')) return;
-    deleteVideo(el.dataset.vid).then(() => {
-      toast('Video deleted');
-      render(true);
-    });
+    deleteVideo(el.dataset.vid).then(() => { toast('Video deleted'); render(true); });
     return;
   }
   if (action === 'admin-unsuspend') {
     e.preventDefault();
-    const cid = el.dataset.cid;
-    if (!cid) return;
-    unsuspendChannel(CTX, cid).then(ok => { if (ok) render(true); });
+    unsuspendChannel(CTX, el.dataset.cid).then(ok => { if (ok) render(true); });
     return;
   }
   if (action === 'pl-add') {
@@ -2023,8 +2650,39 @@ document.addEventListener('click', (e) => {
   }
 });
 
-wireSearchInput(CTX);
-wireClearHistory(CTX);
+function wireSearchInput() {
+  const input = document.getElementById('searchInput');
+  if (!input) return;
+  let debounce = null;
+  input.addEventListener('input', (e) => {
+    state.search = e.target.value;
+    if (state.route[0] !== 'home' && state.search.trim()) location.hash = '#/';
+    else render(true);
+    clearTimeout(debounce);
+    debounce = setTimeout(() => {
+      const q = state.search.trim();
+      if (q.length >= 2) pushSearchHistory(q);
+    }, 900);
+  });
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      const q = state.search.trim();
+      if (q.length >= 2) pushSearchHistory(q);
+    }
+  });
+}
+function wireClearHistory() {
+  document.addEventListener('click', (e) => {
+    if (e.target.id === 'clearHistoryBtn') {
+      clearSearchHistory();
+      toast('Search history cleared');
+      render(true);
+    }
+  });
+}
+
+wireSearchInput();
+wireClearHistory();
 
 function parseRoute() {
   const parts = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean);
@@ -2033,13 +2691,21 @@ function parseRoute() {
 
 window.addEventListener('hashchange', () => {
   if (commentsUnsub) { commentsUnsub(); commentsUnsub = null; }
-  resetMinisPagination();
   state.route = parseRoute();
   document.body.classList.remove('nav-open');
   render(true);
 });
 
 console.log('[main.js] bootstrapping PIXELTube');
+
+/* Force Studio / Admin route when loaded as creator.html / admin.html */
+if (document.body.dataset.page === 'creator') {
+  location.hash = '#/studio';
+}
+if (document.body.dataset.page === 'admin') {
+  location.hash = '#/admin';
+}
+
 state.route = parseRoute();
 renderTopbar();
 renderSidebar();
