@@ -2134,7 +2134,7 @@ function viewCreate() {
               <div id="dropzoneEmpty">
                 <div class="dz-icon">⬆️</div>
                 <div class="dz-title">Click to choose or drop a video</div>
-                <div class="dz-sub">MP4, WebM, or MOV — Longs up to 50 MB, Minis up to 8 MB</div>
+                <div class="dz-sub">MP4, WebM, or MOV — Longs up to 500 MB, Minis up to 100 MB</div>
               </div>
               <div id="dropzoneFile" class="dz-file" style="display:none">
                 <div style="font-size:30px">🎬</div>
