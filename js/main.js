@@ -710,29 +710,45 @@ function showPlaybackError(video, message) {
   loading.textContent = message;
 }
 
-function attachPlaybackSource(video, url) {
+async function attachPlaybackSource(video, url) {
   if (!/\.m3u8(?:$|[?#])/i.test(url) ||
-      video.canPlayType('application/vnd.apple.mpegurl')) {
+      video.canPlayType('application/vnd.apple.mpegurl') ||
+      video.canPlayType('application/x-mpegURL')) {
     video.src = url;
     return true;
   }
 
-  const Hls = window.Hls;
-  if (!Hls || !Hls.isSupported()) {
-    showPlaybackError(video, 'HLS playback is not supported in this browser');
-    return false;
+  let Hls = window.Hls;
+  if (!Hls) {
+    try {
+      ({ default: Hls } = await import('https://cdn.jsdelivr.net/npm/hls.js@1.5.17/+esm'));
+    } catch (error) {
+      console.error('[main.js] could not load HLS.js:', error);
+    }
   }
 
-  const player = new Hls();
-  player.on(Hls.Events.ERROR, (_event, data) => {
-    if (!data.fatal) return;
-    console.error('[main.js] fatal HLS playback error:', data);
-    player.destroy();
-    showPlaybackError(video, 'Unable to play video');
-  });
-  player.loadSource(url);
-  player.attachMedia(video);
-  return true;
+  if (Hls?.isSupported()) {
+    const player = new Hls();
+    player.on(Hls.Events.ERROR, (_event, data) => {
+      if (!data.fatal) return;
+      console.error('[main.js] fatal HLS playback error:', data);
+      player.destroy();
+      showPlaybackError(video, 'Unable to play video');
+    });
+    player.loadSource(url);
+    player.attachMedia(video);
+    return true;
+  }
+
+  const mp4Url = url.replace(/playlist\.m3u8(?=$|[?#])/i, 'play_720p.mp4');
+  if (mp4Url !== url && video.canPlayType('video/mp4')) {
+    console.warn('[main.js] HLS unavailable; falling back to Bunny MP4 rendition');
+    video.src = mp4Url;
+    return true;
+  }
+
+  showPlaybackError(video, 'This browser cannot play this video format');
+  return false;
 }
 
 async function hydrateVideosInView(root) {
@@ -747,7 +763,7 @@ async function hydrateVideosInView(root) {
         v.addEventListener('error', () => {
           showPlaybackError(v, 'Unable to play video');
         }, { once: true });
-        const attached = attachPlaybackSource(v, url);
+        const attached = await attachPlaybackSource(v, url);
         const loading = v.parentElement.querySelector('.loading');
         if (loading && attached) loading.remove();
       } else {
