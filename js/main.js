@@ -184,6 +184,7 @@ const state = {
   uid: PIXLECT.user ? ('pl_' + PIXLECT.user.uid) : getLocalUid(),
   mode: 'connecting',
   videos: {}, channels: {}, playlists: {}, subs: {}, likes: {}, dislikes: {},
+  subscriberCounts: {},
   users: {}, reports: {}, comments: {},
   search: '', route: ['home'],
   viewedThisSession: new Set(),
@@ -202,10 +203,7 @@ let commentsUnsub = null;
    DERIVED HELPERS
    ============================================================ */
 const subsOf = cid => {
-  const ch = state.channels[cid];
-  if (!ch) return 0;
-  const n = Number(ch.subs);
-  return Number.isFinite(n) && n >= 0 ? n : 0;
+  return state.subscriberCounts[cid] || 0;
 };
 const likesOf    = vid => (state.videos[vid]?.likes) || 0;
 const dislikesOf = vid => (state.videos[vid]?.dislikes) || 0;
@@ -397,7 +395,7 @@ async function saveChannel(cid, data) {
     color: data.color || existing.color || (PIXLECT.user.icon?.bg || '#38bdf8'),
     avatar: data.avatar !== undefined ? data.avatar : (existing.avatar || ''),
     banner: data.banner !== undefined ? data.banner : (existing.banner || ''),
-    subs: Number.isFinite(Number(existing.subs)) ? Number(existing.subs) : 0,
+    subs: subsOf(cid),
     ownerUid: PIXLECT.user.uid,
     ownerUsername: PIXLECT.user.username,
     createdAt: existing.createdAt || Date.now()
@@ -536,6 +534,14 @@ function applyData(d) {
   state.users     = d.users     || {};
   state.reports   = d.reports   || {};
   state.comments  = d.comments  || {};
+  state.subscriberCounts = {};
+  Object.values(state.users).forEach(user => {
+    const subscriptions = user?.subs;
+    if (!subscriptions || typeof subscriptions !== 'object') return;
+    Object.entries(subscriptions).forEach(([cid, subscribed]) => {
+      if (subscribed) state.subscriberCounts[cid] = (state.subscriberCounts[cid] || 0) + 1;
+    });
+  });
 
   const u = (d.users && d.users[state.uid]) || {};
   state.subs     = u.subs     || {};
@@ -588,21 +594,17 @@ function setStatus() {
 async function toggleSub(cid) {
   if (!cid) return;
   if (!PIXLECT.user) { toast('Sign in with PIXLECT to subscribe'); pixlectSignIn(); return; }
-  const on = isSubbed(cid), delta = on ? -1 : 1;
+  const on = isSubbed(cid);
   if (state.mode === 'firebase') {
     try {
       const p = `pixeltube/users/${state.uid}/subs/${cid}`;
       if (on) await remove(ref(db, p)); else await set(ref(db, p), true);
-      await runTransaction(ref(db, `pixeltube/channels/${cid}/subs`),
-        n => Math.max(0, (Number(n) || 0) + delta));
       toast(on ? 'Unsubscribed' : 'Subscribed 🔔');
     } catch (e) { toast('Could not update subscription'); }
   } else {
     const u = localDB.users[state.uid] || (localDB.users[state.uid] = {});
     const s = u.subs || (u.subs = {});
     if (on) delete s[cid]; else s[cid] = true;
-    const ch = localDB.channels[cid];
-    if (ch) ch.subs = Math.max(0, (Number(ch.subs) || 0) + delta);
     persistLocal();
     applyData(localDB);
   }
@@ -710,6 +712,13 @@ function showPlaybackError(video, message) {
   loading.textContent = message;
 }
 
+function playbackErrorMessage(url) {
+  if (location.protocol === 'file:' && /^https?:\/\/[^/]+\.b-cdn\.net(?:\/|$)/i.test(url)) {
+    return 'Open PIXELTube from its website or a local web server to play this stream.';
+  }
+  return 'Unable to play video';
+}
+
 async function attachPlaybackSource(video, url) {
   if (!/\.m3u8(?:$|[?#])/i.test(url) ||
       video.canPlayType('application/vnd.apple.mpegurl') ||
@@ -733,7 +742,7 @@ async function attachPlaybackSource(video, url) {
       if (!data.fatal) return;
       console.error('[main.js] fatal HLS playback error:', data);
       player.destroy();
-      showPlaybackError(video, 'Unable to play video');
+      showPlaybackError(video, playbackErrorMessage(url));
     });
     player.loadSource(url);
     player.attachMedia(video);
@@ -761,7 +770,7 @@ async function hydrateVideosInView(root) {
       const url = await storage.resolvePlaybackUrl(CTX, vid);
       if (url) {
         v.addEventListener('error', () => {
-          showPlaybackError(v, 'Unable to play video');
+          showPlaybackError(v, playbackErrorMessage(url));
         }, { once: true });
         const attached = await attachPlaybackSource(v, url);
         const loading = v.parentElement.querySelector('.loading');
@@ -1935,7 +1944,7 @@ function viewWatch(ctx, vid) {
     <div>
       <div class="player">
         <div class="loading">Loading video…</div>
-        <video data-vid="${esc(vid)}" controls autoplay playsinline poster="${esc(v.thumb || '')}"></video>
+        <video data-vid="${esc(vid)}" controls autoplay playsinline referrerpolicy="origin" poster="${esc(v.thumb || '')}"></video>
       </div>
       <h1 class="w-title">${esc(v.title)}</h1>
       <div class="w-row">
@@ -2071,7 +2080,7 @@ function miniSectionHTML(v, ctx, viewerMode) {
   return `
     <section class="mini" data-mini="${esc(v.id)}" ${viewerMode ? `id="mini-${esc(v.id)}"` : ''}>
       <div class="mini-inner">
-        <video data-vid="${esc(v.id)}" loop playsinline preload="metadata" poster="${esc(v.thumb || '')}"></video>
+        <video data-vid="${esc(v.id)}" loop playsinline preload="metadata" referrerpolicy="origin" poster="${esc(v.thumb || '')}"></video>
         <div class="shade"></div>
         <button class="mute-btn" data-action="mute" type="button">🔊</button>
         ${viewerMode ? `<a class="mini-close" href="#/minis" title="Back to Minis">✕</a>` : ''}

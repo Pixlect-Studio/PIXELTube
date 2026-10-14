@@ -44,7 +44,7 @@ function scoreVideo(v, tokens, chanOf) {
    SEARCH — matches title, desc, channel name/handle
    ============================================================ */
 function searchAll(query, ctx) {
-  const { state, chanOf, videosSorted } = ctx;
+  const { state, chanOf, videosSorted, subsOf } = ctx;
   const q = query.trim().toLowerCase();
   if (!q) return { videos: [], channels: [] };
 
@@ -63,7 +63,7 @@ function searchAll(query, ctx) {
   const channels = Object.values(state.channels).filter(c => {
     return matchesText(c.name) || matchesText(c.handle);
   });
-  channels.sort((a, b) => (Number(b.subs) || 0) - (Number(a.subs) || 0));
+  channels.sort((a, b) => subsOf(b.id) - subsOf(a.id));
 
   const score = (v) => {
     const c = chanOf(v.id);
