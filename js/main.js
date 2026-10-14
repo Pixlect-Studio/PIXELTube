@@ -69,11 +69,10 @@ const SUPABASE_PRIMARY = {
   url: 'https://finuvmxyymhfvmscmgac.supabase.co',
   key: 'sb_publishable_UAbpVV0jSe2h6aPkbYEgtw_kWzaT7qt'
 };
-
-const MAX_LONG_BYTES   = 50 * 1024 * 1024;
-const MAX_MINI_BYTES   = 8  * 1024 * 1024;
-const MAX_LONG_SECONDS = 8 * 60;
-const MAX_MINI_SECONDS = 60;
+const MAX_LONG_BYTES   = 500 * 1024 * 1024;  // 500 MB
+const MAX_MINI_BYTES   = 100 * 1024 * 1024;  // 100 MB
+const MAX_LONG_SECONDS = 60 * 60;            // 60 min
+const MAX_MINI_SECONDS = 5 * 60;             // 5 min
 const MAX_EXTRA_CHANNELS = 5;
 
 let supaPrimary = null;
