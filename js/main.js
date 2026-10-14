@@ -697,6 +697,44 @@ async function registerView(vid) {
 /* ============================================================
    VIDEO SOURCE
    ============================================================ */
+function showPlaybackError(video, message) {
+  const player = video.parentElement;
+  if (!player) return;
+
+  let loading = player.querySelector('.loading');
+  if (!loading) {
+    loading = document.createElement('div');
+    loading.className = 'loading';
+    player.append(loading);
+  }
+  loading.textContent = message;
+}
+
+function attachPlaybackSource(video, url) {
+  if (!/\.m3u8(?:$|[?#])/i.test(url) ||
+      video.canPlayType('application/vnd.apple.mpegurl')) {
+    video.src = url;
+    return true;
+  }
+
+  const Hls = window.Hls;
+  if (!Hls || !Hls.isSupported()) {
+    showPlaybackError(video, 'HLS playback is not supported in this browser');
+    return false;
+  }
+
+  const player = new Hls();
+  player.on(Hls.Events.ERROR, (_event, data) => {
+    if (!data.fatal) return;
+    console.error('[main.js] fatal HLS playback error:', data);
+    player.destroy();
+    showPlaybackError(video, 'Unable to play video');
+  });
+  player.loadSource(url);
+  player.attachMedia(video);
+  return true;
+}
+
 async function hydrateVideosInView(root) {
   const vids = $$('video[data-vid]', root || document);
   await Promise.all(vids.map(async (v) => {
@@ -706,9 +744,12 @@ async function hydrateVideosInView(root) {
     try {
       const url = await storage.resolvePlaybackUrl(CTX, vid);
       if (url) {
-        v.src = url;
+        v.addEventListener('error', () => {
+          showPlaybackError(v, 'Unable to play video');
+        }, { once: true });
+        const attached = attachPlaybackSource(v, url);
         const loading = v.parentElement.querySelector('.loading');
-        if (loading) loading.remove();
+        if (loading && attached) loading.remove();
       } else {
         const loading = v.parentElement.querySelector('.loading');
         if (loading) loading.textContent = 'Video source unavailable';
