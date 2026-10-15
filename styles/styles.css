@@ -346,6 +346,15 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
 .player{width:100%;aspect-ratio:16/9;background:#000;border-radius:var(--r);overflow:hidden;border:1px solid var(--line);position:relative}
 .player video{width:100%;height:100%;display:block;background:#000}
 .player .loading{position:absolute;inset:0;display:grid;place-items:center;color:var(--muted);font-size:13px;background:#000}
+.video-audio-toggle{
+  position:absolute;top:12px;right:12px;z-index:3;display:flex;align-items:center;gap:7px;
+  min-height:38px;padding:7px 12px;border:1px solid rgba(255,255,255,.3);border-radius:99px;
+  background:rgba(0,0,0,.72);color:#fff;font-size:12px;font-weight:750;
+  cursor:pointer;pointer-events:auto;touch-action:manipulation;
+}
+.video-audio-toggle:hover{background:rgba(0,0,0,.9)}
+.video-audio-toggle:focus-visible{outline:2px solid #fff;outline-offset:3px}
+.video-audio-toggle [aria-hidden="true"]{font-size:16px}
 .w-title{font-size:20px;font-weight:800;line-height:1.35;margin:16px 0 12px;letter-spacing:-.3px}
 .w-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding-bottom:16px;border-bottom:1px solid var(--line)}
 .w-chan{display:flex;align-items:center;gap:12px;margin-right:auto;min-width:0}
@@ -817,6 +826,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
   .chan-grid{grid-template-columns:1fr;padding:14px}
   .watch{padding:12px 14px 40px;gap:18px}
   .w-title{font-size:18px}
+  .video-audio-toggle{top:8px;right:8px;min-height:36px;padding:6px 10px}
   .w-row{gap:8px}
   .pill{padding:8px 12px;font-size:12.5px}
   .mini-card .t{width:min(42vw,158px)}

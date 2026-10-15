@@ -849,6 +849,8 @@ async function hydrateVideosInView(root) {
     const vid = v.dataset.vid;
     if (v.dataset.hydrated === '1') return;
     v.dataset.hydrated = '1';
+    v.addEventListener('volumechange', () => updateVideoAudioButton(v));
+    updateVideoAudioButton(v);
     try {
       let offlineSource = null;
       try {
@@ -2111,6 +2113,9 @@ function viewWatch(ctx, vid) {
       <div class="player">
         <div class="loading">Loading video…</div>
         <video data-vid="${esc(vid)}" controls autoplay playsinline referrerpolicy="origin" poster="${esc(v.thumb || '')}"></video>
+        <button class="video-audio-toggle" data-action="mute" type="button" aria-label="Mute video" title="Mute video">
+          <span aria-hidden="true">🔊</span><span class="audio-label">Sound on</span>
+        </button>
       </div>
       <h1 class="w-title">${esc(v.title)}</h1>
       <div class="w-row">
@@ -2316,12 +2321,7 @@ function setupMinis(ctx) {
       if (en.isIntersecting && en.intersectionRatio > 0.6) {
         v.play().catch(() => {
           v.muted = true;
-          const btn = v.parentElement.querySelector('.mute-btn');
-          if (btn) {
-            btn.textContent = '🔇';
-            btn.setAttribute('aria-label', 'Turn video sound on');
-            btn.title = 'Turn video sound on';
-          }
+          updateVideoAudioButton(v);
           v.play().catch(() => {});
         });
         if (v.dataset.vid) registerView(v.dataset.vid);
@@ -2748,6 +2748,23 @@ function setupCreateForm() {
 /* ============================================================
    GLOBAL EVENTS
    ============================================================ */
+function updateVideoAudioButton(video) {
+  const button = video.closest('.mini, .player')?.querySelector('.mute-btn, .video-audio-toggle');
+  if (!button) return;
+  const muted = video.muted || video.volume === 0;
+  const label = muted ? 'Turn video sound on' : 'Turn video sound off';
+  if (button.classList.contains('video-audio-toggle')) {
+    const icon = button.querySelector('[aria-hidden="true"]');
+    const text = button.querySelector('.audio-label');
+    if (icon) icon.textContent = muted ? '🔇' : '🔊';
+    if (text) text.textContent = muted ? 'Sound off' : 'Sound on';
+  } else {
+    button.textContent = muted ? '🔇' : '🔊';
+  }
+  button.title = label;
+  button.setAttribute('aria-label', label);
+}
+
 window.addEventListener('pixeltube:signin', pixlectSignIn);
 
 document.addEventListener('click', async (e) => {
@@ -2789,15 +2806,17 @@ document.addEventListener('click', async (e) => {
   if (action === 'mute') {
     e.preventDefault();
     e.stopPropagation();
-    const mini = el.closest('.mini');
-    if (!mini) return;
-    const v = mini.querySelector('video');
+    const player = el.closest('.mini, .player');
+    if (!player) return;
+    const v = player.querySelector('video');
     if (!v) return;
-    v.muted = !v.muted;
-    const label = v.muted ? 'Turn video sound on' : 'Turn video sound off';
-    el.textContent = v.muted ? '🔇' : '🔊';
-    el.setAttribute('aria-label', label);
-    el.title = label;
+    if (v.muted || v.volume === 0) {
+      v.muted = false;
+      if (v.volume === 0) v.volume = 1;
+    } else {
+      v.muted = true;
+    }
+    updateVideoAudioButton(v);
     return;
   }
   if (action === 'share') {
