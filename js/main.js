@@ -593,6 +593,7 @@ function applyData(d) {
   state.subs     = u.subs     || {};
   state.likes    = u.likes    || {};
   state.dislikes = u.dislikes || {};
+  updateJoinedUserCount();
 
   const idx = u.channels || {};
   const ids = Object.keys(idx);
@@ -607,6 +608,18 @@ function applyData(d) {
 
   renderSidebar();
   render();
+}
+
+function updateJoinedUserCount() {
+  const counter = document.getElementById('joinedUserCount');
+  if (!counter) return;
+  if (state.mode !== 'firebase') {
+    counter.textContent = 'Community count unavailable offline';
+    return;
+  }
+
+  const joinedUsers = Object.keys(state.users).filter(uid => uid.startsWith('pl_') && uid.length > 3).length;
+  counter.textContent = `${fmt(joinedUsers)} ${joinedUsers === 1 ? 'user' : 'users'} joined PIXELTube`;
 }
 
 async function migrateUserChannels() {
@@ -2240,7 +2253,7 @@ function miniSectionHTML(v, ctx, viewerMode) {
       <div class="mini-inner">
         <video data-vid="${esc(v.id)}" loop playsinline preload="metadata" referrerpolicy="origin" poster="${esc(v.thumb || '')}"></video>
         <div class="shade"></div>
-        <button class="mute-btn" data-action="mute" type="button">🔊</button>
+        <button class="mute-btn" data-action="mute" type="button" aria-label="Turn video sound off" title="Turn video sound off">🔊</button>
         ${viewerMode ? `<a class="mini-close" href="#/minis" title="Back to Minis">✕</a>` : ''}
 
         <div class="rail">
@@ -2304,7 +2317,11 @@ function setupMinis(ctx) {
         v.play().catch(() => {
           v.muted = true;
           const btn = v.parentElement.querySelector('.mute-btn');
-          if (btn) btn.textContent = '🔇';
+          if (btn) {
+            btn.textContent = '🔇';
+            btn.setAttribute('aria-label', 'Turn video sound on');
+            btn.title = 'Turn video sound on';
+          }
           v.play().catch(() => {});
         });
         if (v.dataset.vid) registerView(v.dataset.vid);
@@ -2771,11 +2788,16 @@ document.addEventListener('click', async (e) => {
   if (action === 'sub')     { e.preventDefault(); e.stopPropagation(); toggleSub(el.dataset.channel); return; }
   if (action === 'mute') {
     e.preventDefault();
+    e.stopPropagation();
     const mini = el.closest('.mini');
     if (!mini) return;
     const v = mini.querySelector('video');
+    if (!v) return;
     v.muted = !v.muted;
+    const label = v.muted ? 'Turn video sound on' : 'Turn video sound off';
     el.textContent = v.muted ? '🔇' : '🔊';
+    el.setAttribute('aria-label', label);
+    el.title = label;
     return;
   }
   if (action === 'share') {

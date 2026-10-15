@@ -6,6 +6,15 @@
 <meta name="referrer" content="origin" />
 <title>PIXELTube</title>
 <script>
+try {
+  const savedTheme = localStorage.getItem('pixeltube-theme');
+  document.documentElement.dataset.theme = savedTheme === 'light' ? 'light' : 'dark';
+} catch (error) {
+  document.documentElement.dataset.theme = 'dark';
+  console.warn('[PIXELTube] could not read saved theme:', error);
+}
+</script>
+<script>
 if ('serviceWorker' in navigator && window.isSecureContext) {
   navigator.serviceWorker.register('./service-worker.js')
     .catch(error => console.warn('[PIXELTube] service worker registration failed:', error));
@@ -37,6 +46,10 @@ if ('serviceWorker' in navigator && window.isSecureContext) {
     <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 1 0-.7.7l.27.28v.79l5 4.99L20.49 19zm-6 0A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14z"/></svg>
     <input id="searchInput" type="search" placeholder="Search videos, channels, and descriptions" autocomplete="off" />
   </div>
+  <button class="theme-toggle" data-theme-toggle type="button" aria-label="Switch color theme" title="Switch color theme">
+    <svg class="sun" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zm0-6a1 1 0 0 1 1 1v2h-2V3a1 1 0 0 1 1-1zm0 18a1 1 0 0 1 1 1v2h-2v-2a1 1 0 0 1 1-1zM4.22 2.81l1.42 1.41 1.41 1.42-1.41 1.41-1.42-1.41-1.41-1.42zm12.73 12.73 1.41-1.41 1.42 1.41 1.41 1.42-1.41 1.41-1.42-1.41zM2 12a1 1 0 0 1 1-1h2v2H3a1 1 0 0 1-1-1zm17 0a1 1 0 0 1 1-1h2v2h-2a1 1 0 0 1-1-1zM4.22 21.19l-1.41-1.41 1.41-1.42 1.42-1.41 1.41 1.41-1.41 1.42zm12.73-12.73 1.41-1.41 1.42 1.41 1.41 1.42-1.41 1.41-1.42-1.41z"/></svg>
+    <svg class="moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.37 5.51A8 8 0 0 0 18.49 14.6 8.5 8.5 0 1 1 9.37 5.5z"/></svg>
+  </button>
   <span class="status-pill" id="statusPill">connecting</span>
   <div id="authSlot"></div>
 </header>
@@ -53,12 +66,39 @@ if ('serviceWorker' in navigator && window.isSecureContext) {
   <span class="dot">·</span>
   <a href="#/guidelines">Community Guidelines</a>
   <span class="dot">·</span>
+  <span class="joined-count" id="joinedUserCount" aria-live="polite">Loading community count…</span>
+  <span class="dot">·</span>
   <span>© 2026 PIXELTube</span>
 </footer>
 
 <div id="toast"></div>
 <div id="modalRoot"></div>
 
+<script>
+(() => {
+  const button = document.querySelector('[data-theme-toggle]');
+  if (!button) return;
+
+  const updateThemeButton = () => {
+    const nextTheme = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
+    const label = `Switch to ${nextTheme} mode`;
+    button.setAttribute('aria-label', label);
+    button.title = label;
+  };
+
+  button.addEventListener('click', () => {
+    const theme = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
+    document.documentElement.dataset.theme = theme;
+    updateThemeButton();
+    try {
+      localStorage.setItem('pixeltube-theme', theme);
+    } catch (error) {
+      console.warn('[PIXELTube] could not save theme preference:', error);
+    }
+  });
+  updateThemeButton();
+})();
+</script>
 <script src="https://cdn.jsdelivr.net/npm/tus-js-client@4.1.0/dist/tus.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js"></script>
 <script type="module" src="./js/main.js?v=18"></script>
