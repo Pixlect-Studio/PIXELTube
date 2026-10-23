@@ -21,9 +21,9 @@ import {
 import {
   promptReportVideo, promptGuidelines,
   canCurrentUserUpload, hasAcceptedGuidelines,
-  suspendChannel, unsuspendChannel, isUserSuspended,
-  viewAdmin, isAdminUser
-} from './sec.js';
+  suspendChannel, unsuspendChannel, isUserSuspended, isChannelSuspended, getChannelSuspensionInfo,
+  viewAdmin, isAdminUser, viewModerationInbox
+} from './sec.js?v=32';
 
 import { viewStudio } from './studio.js';
 import { viewPrivacy, viewTerms, viewGuidelines } from './legal.js';
@@ -190,7 +190,7 @@ const state = {
   mode: 'connecting',
   videos: {}, channels: {}, playlists: {}, subs: {}, likes: {}, dislikes: {},
   subscriberCounts: {},
-  users: {}, reports: {}, comments: {},
+  users: {}, reports: {}, comments: {}, audit: {},
   search: '', route: ['home'],
   viewedThisSession: new Set(),
   myChannelIds: [],
@@ -225,7 +225,11 @@ const isDisliked = vid => !!state.dislikes[vid];
 const chanOf     = vid => state.channels[state.videos[vid]?.channelId] || { name: 'Unknown', color: '#555' };
 
 function videosSorted() {
-  return Object.values(state.videos).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  return Object.values(state.videos)
+    .filter(v => !isChannelSuspended({ state }, v.channelId))
+    .filter(v => !(v.moderation?.hidden || v.moderation?.restricted) || (PIXLECT.user && (v.createdBy === PIXLECT.user.uid || isAdmin())))
+    .filter(v => !['pending', 'ignored', 'disapproved'].includes(String(v.reviewStatus || '').toLowerCase()) || (PIXLECT.user && (v.createdBy === PIXLECT.user.uid || isAdmin())))
+    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 }
 const minisSorted = () => videosSorted().filter(v => v.kind === 'mini');
 const longsSorted = () => videosSorted().filter(v => v.kind !== 'mini');
@@ -530,20 +534,54 @@ async function boot() {
 
     await new Promise((resolve) => {
       let done = false;
+      let initialLoadTimer = null;
       const rootRef = ref(db, 'pixeltube');
+
+      // Render the user's cached/local view quickly instead of leaving a blocking
+      // splash screen up while Firebase sends the complete database tree.
+      const showCachedView = () => {
+        try {
+          const raw = JSON.parse(localStorage.getItem('pixeltube_db') || 'null');
+          if (raw && !lastData) applyData(raw);
+        } catch (cacheError) {
+          console.warn('[main.js] Could not read cached PIXELTube data:', cacheError);
+        }
+        hideLoader();
+      };
+
       onValue(rootRef,
         s => {
+          if (initialLoadTimer) clearTimeout(initialLoadTimer);
           applyData(s.val() || {});
-          if (!done) { done = true; setLoaderStatus('Loaded.'); setTimeout(hideLoader, 250); resolve(); }
+          setStatus();
+          if (!done) {
+            done = true;
+            setLoaderStatus('Loaded.');
+            setTimeout(hideLoader, 100);
+            resolve();
+          }
         },
         err => {
+          if (initialLoadTimer) clearTimeout(initialLoadTimer);
           console.warn('[main.js] stream error:', err);
-          if (!done) { done = true; setLoaderStatus('Using offline mode…'); setTimeout(() => { bootLocal(); hideLoader(); }, 400); resolve(); }
+          if (!done) {
+            done = true;
+            setLoaderStatus('Using offline mode…');
+            setTimeout(() => { bootLocal(); hideLoader(); }, 200);
+            resolve();
+          }
         }
       );
-      setTimeout(() => {
-        if (!done) { done = true; setLoaderStatus('Slow connection — loading anyway…'); hideLoader(); resolve(); }
-      }, 6000);
+
+      // Never block the interface for a long initial Firebase snapshot.
+      initialLoadTimer = setTimeout(() => {
+        if (!done) {
+          done = true;
+          setLoaderStatus('Still connecting — showing cached content…');
+          showCachedView();
+          resolve();
+        }
+      }, 2200);
     });
 
     setStatus();
@@ -588,6 +626,7 @@ function applyData(d) {
   state.playlists = d.playlists || {};
   state.users     = d.users     || {};
   state.reports   = d.reports   || {};
+  state.audit     = d.moderationAudit || d.audit || {};
   state.comments  = d.comments  || {};
   const u = (d.users && d.users[state.uid]) || {};
   state.subs     = u.subs     || {};
@@ -849,8 +888,6 @@ async function hydrateVideosInView(root) {
     const vid = v.dataset.vid;
     if (v.dataset.hydrated === '1') return;
     v.dataset.hydrated = '1';
-    v.addEventListener('volumechange', () => updateVideoAudioButton(v));
-    updateVideoAudioButton(v);
     try {
       let offlineSource = null;
       try {
@@ -889,7 +926,7 @@ async function createVideo(payload) {
   const block = canCurrentUserUpload(CTX);
   if (block) {
     if (block.reason === 'suspended') {
-      toast('Your account is suspended: ' + (block.info?.reason || 'Violation of guidelines'));
+      toast('This channel is suspended: ' + (block.info?.reason || 'Violation of guidelines')); 
     } else {
       toast('You can\'t upload right now');
     }
@@ -938,7 +975,8 @@ async function createVideo(payload) {
     desc: payload.desc || '',
     createdAt: Date.now(),
     createdBy: PIXLECT.user.uid,
-    srcBackend
+    srcBackend,
+    ...(String(ch.publishingMode || 'FREE').toUpperCase() === 'REVIEW' ? { reviewStatus: 'pending', reviewSubmittedAt: Date.now() } : {})
   };
 
   if (state.mode === 'firebase') {
@@ -948,6 +986,7 @@ async function createVideo(payload) {
         await set(ref(db, `pixeltube/videoSrc/${vid}`), storedSrc);
       }
       statsLogEvent('upload', { vid, kind, channelId: cid });
+      if (meta.reviewStatus === 'pending') toast('Upload saved privately and sent to the review queue.');
       return vid;
     } catch (e) {
       toast('Publish failed: ' + (e?.message || e));
@@ -961,6 +1000,7 @@ async function createVideo(payload) {
     persistLocal();
     applyData(localDB);
     statsLogEvent('upload', { vid, kind, channelId: cid });
+    if (meta.reviewStatus === 'pending') toast('Upload saved privately and sent to the review queue.');
     return vid;
   }
 }
@@ -1130,7 +1170,7 @@ const CTX = {
 
   pixlectSignIn, toast, openModal, closeModal,
   renderTopbar, renderSidebar, render,
-  persistLocal, applyData, remove, ref, get, set, update,
+  persistLocal, applyData, remove, ref, get, set, update, push,
 
   hydrateVideosInView,
 
@@ -1161,7 +1201,7 @@ function cardHTML(v) {
       ${avatarHTML(c)}
       <div style="min-width:0">
         <h3>${esc(v.title)}</h3>
-        <div class="sub">${esc(c.name)}</div>
+        <div class="sub">${esc(c.name)} ${c.verified ? '<span class="admin-verified" title="Verified channel">✓</span>' : ''}</div>
         <div class="sub">${fmt(v.views)} views · ${esc(timeAgo(v.createdAt))}</div>
       </div>
     </div>
@@ -1181,7 +1221,7 @@ function shortCardHTML(v) {
       </span>
     </div>
     <h3>${esc(v.title)}</h3>
-    <div class="sub">${esc(c.name)}</div>
+    <div class="sub">${esc(c.name)} ${c.verified ? '<span class="admin-verified" title="Verified channel">✓</span>' : ''}</div>
   </a>`;
 }
 
@@ -1271,7 +1311,19 @@ function renderTopbar() {
       ADMIN
     </div>` : '';
 
+  const pendingReportCount = Object.values(state.reports || {}).filter(r => !['resolved', 'dismissed'].includes(String(r.status || 'pending').toLowerCase())).length;
+  const pendingReviewCount = Object.values(state.videos || {}).filter(v => String(v.reviewStatus || '').toLowerCase() === 'pending').length;
+  const moderationUnreadCount = Object.values(state.channels || {}).filter(c => c && c.ownerUid === u.uid).reduce((sum, c) => sum + Object.values(c.moderationInbox || {}).filter(t => { if (!t || t.closed) return false; const latest = Object.values(t.messages || {}).sort((a,b)=>(b.ts||0)-(a.ts||0))[0]; return latest && latest.senderRole === 'admin'; }).length, 0);
+  const inboxLink = `<a class="moderation-inbox-nav" href="#/inbox" title="Messages from PIXELTube Admin">✉ Admin Messages ${moderationUnreadCount ? `<span>${moderationUnreadCount}</span>` : ''}</a>`;
+  const cautionLink = isAdmin() ? `
+    <a class="caution-nav-link" href="#/admin/dashboard" title="Open moderation dashboard" aria-label="Caution and reports">
+      <span aria-hidden="true">⚠</span> Caution / Reports
+      ${(pendingReportCount + pendingReviewCount) > 0 ? `<span class="caution-nav-count">${pendingReportCount + pendingReviewCount}</span>` : ''}
+    </a>` : '';
+
   slot.innerHTML = `
+    ${cautionLink}
+    ${inboxLink}
     <button class="user-chip" id="userChip" type="button">
       ${avHTML}
       <span class="nm">${esc(displayName)}</span>
@@ -1285,6 +1337,7 @@ function renderTopbar() {
         </div>
       </div>
       ${channelBlock}
+      <a href="#/inbox" style="display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:10px 12px;border-radius:9px;font-size:13.5px;font-weight:600" id="menuModerationInbox">✉ Admin Messages</a>
       ${channelListHTML}
       ${adminBadge}
       <div class="sep"></div>
@@ -1609,7 +1662,8 @@ function render(force = false) {
   else if (page === 'channel')   view.innerHTML = viewChannel(CTX, arg);
   else if (page === 'playlists') view.innerHTML = viewPlaylists(CTX);
   else if (page === 'playlist')  view.innerHTML = viewPlaylist(CTX);
-  else if (page === 'admin')     view.innerHTML = viewAdmin(CTX, arg || 'reports');
+  else if (page === 'admin')     view.innerHTML = viewAdmin(CTX, arg || 'dashboard', state.route[2] || '');
+  else if (page === 'inbox')     view.innerHTML = viewModerationInbox(CTX);
   else if (page === 'studio')    {
     view.innerHTML = viewStudio(CTX, arg || 'dashboard');
     if (!arg || arg === 'dashboard') setupStudioStats();
@@ -1713,7 +1767,7 @@ function viewFeed(ctx) {
         <a class="chan-card" href="#/channel/${esc(c.id)}">
           ${avatarHTML(c, 'lg')}
           <div class="chan-card-info">
-            <h3>${esc(c.name)}</h3>
+            <h3>${esc(c.name)} ${c.verified ? '<span class="admin-verified" title="Verified channel">✓</span>' : ''}</h3>
             <div class="sub">${esc(c.handle || '')} · <span data-dyn="subcount-label" data-channel="${esc(c.id)}">${fmt(subsOf(c.id))} subscriber${subsOf(c.id) === 1 ? '' : 's'}</span></div>
           </div>
         </a>`).join('')}</div>
@@ -1981,6 +2035,7 @@ function viewChannel(ctx, cid) {
   const myIds = (myChannels() || []).map(x => x.id);
   const isMine = PIXLECT.user && c.ownerUid === PIXLECT.user.uid && myIds.includes(cid);
   const isActive = PIXLECT.user && state.activeChannelId === cid;
+  const suspensionInfo = getChannelSuspensionInfo(ctx, cid);
 
   const bannerStyle = c.banner
     ? `background-image:url('${esc(c.banner)}')`
@@ -1995,10 +2050,14 @@ function viewChannel(ctx, cid) {
 
   return `
     <div class="banner" style="${bannerStyle}"></div>
+    ${suspensionInfo ? (isMine
+      ? `<div class="admin-note" role="status" style="margin:12px 0;padding:14px"><b>⚠ This channel is suspended until ${esc(new Date(suspensionInfo.expiresAt).toLocaleString())}.</b><br>Reason: ${esc(suspensionInfo.reason || 'Community Guidelines')}<br>Your other channels and main account are not suspended.</div>`
+      : `<div class="admin-note" role="status" style="margin:12px 0;padding:14px"><b>This channel is temporarily unavailable due to a moderation action.</b></div>`)
+      : ''}
     <div class="chan-head">
       ${avatarHTML(c, 'lg')}
       <div class="txt">
-        <h1>${esc(c.name)}</h1>
+        <h1>${esc(c.name)} ${c.verified ? '<span class="admin-verified" title="Verified channel">✓ Verified</span>' : ''}</h1>
         <div class="meta">
           ${esc(c.handle)} ·
           <span data-dyn="subcount" data-channel="${esc(cid)}">${fmt(subsOf(cid))} subscribers</span> ·
@@ -2034,10 +2093,23 @@ function viewWatch(ctx, vid) {
     `<a class="btn-ghost" href="#/">Go to Feed</a>`);
 
   const c = chanOf(vid);
+  const channelSuspension = getChannelSuspensionInfo(ctx, c.id);
+  const isChannelOwner = !!(PIXLECT.user && c.ownerUid === PIXLECT.user.uid);
+  if (channelSuspension && !isAdmin() && !isChannelOwner) {
+    return emptyState('🚫', 'Channel temporarily suspended',
+      'Videos from this channel are unavailable while the channel suspension is active.',
+      `<a class="btn-ghost" href="#/">Back to Feed</a>`);
+  }
   const liked = isLiked(vid);
   const disliked = isDisliked(vid);
   const subbed = isSubbed(c.id);
   const isMine = PIXLECT.user && v.createdBy === PIXLECT.user.uid;
+  if (['pending', 'ignored', 'disapproved'].includes(String(v.reviewStatus || '').toLowerCase()) && !isAdmin() && !isMine) {
+    return emptyState('🔒', 'Video not available', 'This video is not publicly available.', `<a class="btn-ghost" href="#/">Back to Feed</a>`);
+  }
+  if ((v.moderation?.hidden || v.moderation?.restricted) && !isAdmin() && !isMine) {
+    return emptyState('🔒', 'Video restricted', 'This video is currently hidden by moderation.', `<a class="btn-ghost" href="#/">Back to Feed</a>`);
+  }
   const canDelete = isMine || isAdmin();
   const canReport = PIXLECT.user && !isMine;
 
@@ -2110,19 +2182,17 @@ function viewWatch(ctx, vid) {
   return `
   <div class="watch">
     <div>
+      ${['pending', 'ignored', 'disapproved'].includes(String(v.reviewStatus || '').toLowerCase()) && (isMine || isAdmin()) ? `<div class="admin-note" role="status" style="margin:0 0 12px;padding:14px"><b>Review status: ${esc(String(v.reviewStatus).toUpperCase())}</b>${v.reviewReason ? `<div>${esc(v.reviewReason)}</div>` : ''}${v.reviewStatus === 'pending' || v.reviewStatus === 'ignored' ? '<div>This video is not public while it awaits approval.</div>' : '<div>This video remains private after disapproval.</div>'}</div>` : ''}
       <div class="player">
         <div class="loading">Loading video…</div>
         <video data-vid="${esc(vid)}" controls autoplay playsinline referrerpolicy="origin" poster="${esc(v.thumb || '')}"></video>
-        <button class="video-audio-toggle" data-action="mute" type="button" aria-label="Mute video" title="Mute video">
-          <span aria-hidden="true">🔊</span><span class="audio-label">Sound on</span>
-        </button>
       </div>
       <h1 class="w-title">${esc(v.title)}</h1>
       <div class="w-row">
         <div class="w-chan">
           ${avatarHTML(c, 'lg')}
           <div style="min-width:0">
-            <a class="nm" href="#/channel/${esc(c.id)}">${esc(c.name)}</a>${adminTag}
+            <a class="nm" href="#/channel/${esc(c.id)}">${esc(c.name)} ${c.verified ? '<span class="admin-verified" title="Verified channel">✓</span>' : ''}</a>${adminTag}
             <div class="sb" data-dyn="subcount" data-channel="${esc(c.id)}">${fmt(subsOf(c.id))} subscribers</div>
           </div>
         </div>
@@ -2321,7 +2391,12 @@ function setupMinis(ctx) {
       if (en.isIntersecting && en.intersectionRatio > 0.6) {
         v.play().catch(() => {
           v.muted = true;
-          updateVideoAudioButton(v);
+          const btn = v.parentElement.querySelector('.mute-btn');
+          if (btn) {
+            btn.textContent = '🔇';
+            btn.setAttribute('aria-label', 'Turn video sound on');
+            btn.title = 'Turn video sound on';
+          }
           v.play().catch(() => {});
         });
         if (v.dataset.vid) registerView(v.dataset.vid);
@@ -2693,7 +2768,7 @@ function setupCreateForm() {
 
     const block = canCurrentUserUpload(CTX);
     if (block && block.reason === 'suspended') {
-      toast('Your account is suspended and cannot upload.');
+      toast('This channel is suspended and cannot upload.');
       return;
     }
 
@@ -2748,23 +2823,6 @@ function setupCreateForm() {
 /* ============================================================
    GLOBAL EVENTS
    ============================================================ */
-function updateVideoAudioButton(video) {
-  const button = video.closest('.mini, .player')?.querySelector('.mute-btn, .video-audio-toggle');
-  if (!button) return;
-  const muted = video.muted || video.volume === 0;
-  const label = muted ? 'Turn video sound on' : 'Turn video sound off';
-  if (button.classList.contains('video-audio-toggle')) {
-    const icon = button.querySelector('[aria-hidden="true"]');
-    const text = button.querySelector('.audio-label');
-    if (icon) icon.textContent = muted ? '🔇' : '🔊';
-    if (text) text.textContent = muted ? 'Sound off' : 'Sound on';
-  } else {
-    button.textContent = muted ? '🔇' : '🔊';
-  }
-  button.title = label;
-  button.setAttribute('aria-label', label);
-}
-
 window.addEventListener('pixeltube:signin', pixlectSignIn);
 
 document.addEventListener('click', async (e) => {
@@ -2806,17 +2864,15 @@ document.addEventListener('click', async (e) => {
   if (action === 'mute') {
     e.preventDefault();
     e.stopPropagation();
-    const player = el.closest('.mini, .player');
-    if (!player) return;
-    const v = player.querySelector('video');
+    const mini = el.closest('.mini');
+    if (!mini) return;
+    const v = mini.querySelector('video');
     if (!v) return;
-    if (v.muted || v.volume === 0) {
-      v.muted = false;
-      if (v.volume === 0) v.volume = 1;
-    } else {
-      v.muted = true;
-    }
-    updateVideoAudioButton(v);
+    v.muted = !v.muted;
+    const label = v.muted ? 'Turn video sound on' : 'Turn video sound off';
+    el.textContent = v.muted ? '🔇' : '🔊';
+    el.setAttribute('aria-label', label);
+    el.title = label;
     return;
   }
   if (action === 'share') {
@@ -2869,16 +2925,45 @@ document.addEventListener('click', async (e) => {
     deleteVideo(el.dataset.video).then(() => { location.hash = '#/'; toast('Video deleted'); });
     return;
   }
-  if (action === 'admin-dismiss') {
+  if (action === 'admin-report-under-review') {
     e.preventDefault();
+    if (!isAdmin()) { toast('Admin only'); return; }
+    const rid = el.dataset.rid; const report = state.reports?.[rid];
+    if (!report) { toast('Report not found; refresh the report list'); return; }
     (async () => {
       try {
-        await update(ref(db, `pixeltube/reports/${el.dataset.rid}`), {
-          status: 'resolved', resolvedAt: Date.now(),
-          resolvedBy: PIXLECT.user.username, action: 'dismissed'
-        });
-        toast('Report dismissed'); render(true);
-      } catch (err) { console.error(err); toast('Could not dismiss'); }
+        const patch = { status: 'under-review', reviewStartedAt: Date.now(), reviewStartedBy: PIXLECT.user.username };
+        if (state.mode === 'local' && localDB) { localDB.reports = localDB.reports || {}; localDB.reports[rid] = { ...report, ...patch }; persistLocal(); applyData(localDB); }
+        else { await update(ref(db, `pixeltube/reports/${rid}`), patch); state.reports[rid] = { ...report, ...patch }; }
+        try { const { writeModerationAudit } = await import('./sec.js?v=32'); await writeModerationAudit(CTX, 'report-under-review', 'report', rid); } catch (_) {}
+        toast('Report marked under review'); render(true);
+      } catch (err) { toast('Could not update report: ' + (err?.message || 'database error')); }
+    })();
+    return;
+  }
+  if (action === 'admin-dismiss' || action === 'admin-resolve') {
+    e.preventDefault();
+    if (!isAdmin()) { toast('Admin only'); return; }
+    const rid = el.dataset.rid;
+    const report = state.reports?.[rid];
+    if (!report) { toast('Report not found; refresh the report list'); return; }
+    const verb = action === 'admin-resolve' ? 'resolve' : 'dismiss';
+    const note = prompt(`${verb === 'resolve' ? 'Resolution' : 'Dismissal'} note (optional; visible to admins):`, report.moderationNote || '');
+    if (note === null) return;
+    (async () => {
+      try {
+        const patch = { status: verb === 'resolve' ? 'resolved' : 'dismissed', resolvedAt: Date.now(), resolvedBy: PIXLECT.user.username, action: verb, moderationNote: note.trim().slice(0, 500) };
+        if (state.mode === 'local' && localDB) {
+          localDB.reports = localDB.reports || {};
+          localDB.reports[rid] = { ...report, ...patch };
+          persistLocal(); applyData(localDB);
+        } else {
+          await update(ref(db, `pixeltube/reports/${rid}`), patch);
+          state.reports[rid] = { ...report, ...patch };
+        }
+        try { const { writeModerationAudit } = await import('./sec.js?v=32'); await writeModerationAudit(CTX, `report-${verb === 'resolve' ? 'resolved' : 'dismissed'}`, 'report', rid, note.trim()); } catch (auditErr) { console.warn('[admin] report audit failed', auditErr); }
+        toast(verb === 'resolve' ? 'Report resolved' : 'Report dismissed'); render(true);
+      } catch (err) { console.error(err); toast('Could not update report: ' + (err?.message || 'database error')); }
     })();
     return;
   }
@@ -2899,10 +2984,20 @@ document.addEventListener('click', async (e) => {
   }
   if (action === 'admin-suspend') {
     e.preventDefault();
-    const reason = prompt('Reason for suspension:');
-    if (!reason) return;
+    const targetChannel = state.channels[el.dataset.cid];
+    if (!targetChannel) { toast('Channel not found'); return; }
+    if (el.dataset.cid === ('pl_' + targetChannel.ownerUid)) {
+      const confirmPrimary = confirm('You are suspending this owner’s MAIN channel. Their account and other channels will remain usable, but this main channel will be blocked. Continue?');
+      if (!confirmPrimary) return;
+    }
+    const reason = prompt('Reason shown to the channel owner:');
+    if (!reason || !reason.trim()) return;
+    const daysRaw = prompt('Suspension duration in days (1–3650):', '7');
+    if (daysRaw === null) return;
+    const days = Number(daysRaw);
+    if (!Number.isInteger(days) || days < 1 || days > 3650) { toast('Enter a whole number from 1 to 3650 days'); return; }
     (async () => {
-      const ok = await suspendChannel(CTX, el.dataset.cid, reason);
+      const ok = await suspendChannel(CTX, el.dataset.cid, reason.trim(), days);
       if (!ok) return;
       if (el.dataset.rid) {
         try {
@@ -2922,11 +3017,171 @@ document.addEventListener('click', async (e) => {
     deleteVideo(el.dataset.vid).then(() => { toast('Video deleted'); render(true); });
     return;
   }
+  if (action === 'admin-publishing-mode') {
+    e.preventDefault();
+    const cid = el.dataset.cid;
+    const current = String(state.channels[cid]?.publishingMode || 'FREE').toUpperCase() === 'REVIEW' ? 'REVIEW' : 'FREE';
+    const next = current === 'REVIEW' ? 'FREE' : 'REVIEW';
+    const reason = prompt(`Change this channel's publishing mode from ${current} to ${next}. Reason (optional):`, '');
+    if (reason === null) return;
+    import('./sec.js?v=32').then(({ setPublishingMode }) => setPublishingMode(CTX, cid, next, reason)).then(ok => { if (ok) render(true); });
+    return;
+  }
+  if (action === 'admin-review-approve' || action === 'admin-review-ignore' || action === 'admin-review-disapprove') {
+    e.preventDefault();
+    const vid = el.dataset.vid;
+    const decision = action === 'admin-review-approve' ? 'approve' : action === 'admin-review-ignore' ? 'ignore' : 'disapprove';
+    let reason = '';
+    if (decision === 'disapprove') {
+      reason = prompt('Reason for disapproving this video (required; shown to the creator):', '');
+      if (reason === null) return;
+      if (!reason.trim()) { toast('A disapproval reason is required'); return; }
+    }
+    const label = decision === 'approve' ? 'Approve this video and make it public?' : decision === 'ignore' ? 'Ignore this review item? The video will stay private.' : 'Disapprove this video? It will stay private.';
+    if (!confirm(label)) return;
+    import('./sec.js?v=32').then(({ reviewVideo }) => reviewVideo(CTX, vid, decision, reason)).then(ok => { if (ok) render(true); });
+    return;
+  }
   if (action === 'admin-unsuspend') {
     e.preventDefault();
     unsuspendChannel(CTX, el.dataset.cid).then(ok => { if (ok) render(true); });
     return;
   }
+  if (action === 'admin-flag-video') {
+    e.preventDefault(); const vid = el.dataset.vid; const video = state.videos[vid]; if (!video || !isAdmin()) return;
+    const current = (video.moderationTags || []).join(', ');
+    const raw = prompt('Enter flag labels separated by commas (examples: AI, unsafe, #over10yrs). Leave blank to clear all flags:', current);
+    if (raw === null) return;
+    const tags = [...new Set(raw.split(',').map(t => t.trim().slice(0,40)).filter(Boolean))].slice(0,20);
+    (async()=>{const ok=await adminPersistRecord('video',vid,{moderationTags:tags,moderation:{...(video.moderation||{}),flagged:tags.length>0,flaggedAt:Date.now(),flaggedBy:PIXLECT.user?.username||'admin'}}); if(ok){try{const {writeModerationAudit}=await import('./sec.js?v=32');await writeModerationAudit(CTX,'video-flagged','video',vid,tags.join(', '));}catch(_){} toast(tags.length?'Video flags saved':'Video flags cleared');render(true);}})(); return;
+  }
+  if (action === 'admin-video-toggle-restrict') {
+    e.preventDefault();
+    const vid = el.dataset.vid; const v = state.videos[vid];
+    if (!v || !isAdmin()) { toast('Admin only'); return; }
+    const hidden = !!(v.moderation?.hidden || v.moderation?.restricted);
+    const nextHidden = !hidden;
+    if (!confirm(`${nextHidden ? 'Hide/restrict' : 'Restore public visibility for'} “${v.title || vid}”?`)) return;
+    (async () => {
+      const moderation = { ...(v.moderation || {}), hidden: nextHidden, restricted: nextHidden, visibilityChangedAt: Date.now(), visibilityChangedBy: PIXLECT.user?.username || 'admin' };
+      const ok = await adminPersistRecord('video', vid, { moderation });
+      if (ok) {
+        try { const { writeModerationAudit } = await import('./sec.js?v=32'); await writeModerationAudit(CTX, nextHidden ? 'video-restricted' : 'video-restored', 'video', vid); } catch (_) {}
+        toast(nextHidden ? 'Video hidden from public discovery' : 'Video visibility restored');
+        render(true);
+      }
+    })();
+    return;
+  }
+  if (action === 'admin-rename-video') {
+    e.preventDefault(); const vid=el.dataset.vid; const v=state.videos[vid]; if(!v||!isAdmin())return;
+    const title=prompt('New video title:',v.title||''); if(title===null)return; if(!title.trim()){toast('Title cannot be empty');return;}
+    (async()=>{const ok=await adminPersistRecord('video',vid,{title:title.trim().slice(0,180),moderationLastRenamedAt:Date.now(),moderationLastRenamedBy:PIXLECT.user?.username||'admin'});if(ok){try{const {writeModerationAudit}=await import('./sec.js?v=32');await writeModerationAudit(CTX,'video-renamed','video',vid,'',`Old: ${v.title||''} → New: ${title.trim()}`);}catch(_){}toast('Video title updated');render(true);}})();return;
+  }
+  if (action === 'admin-verify-channel') {
+    e.preventDefault(); const cid=el.dataset.cid; const ch=state.channels[cid]; if(!ch||!isAdmin())return;
+    const verified=!ch.verified; if(!confirm(`${verified?'Grant':'Revoke'} verified badge for ${ch.name||cid}?`))return;
+    adminPersistRecord('channel',cid,{verified,verifiedAt:verified?Date.now():null,verifiedBy:verified?(PIXLECT.user?.username||'admin'):null}).then(async ok=>{if(ok){try{const {writeModerationAudit}=await import('./sec.js?v=32');await writeModerationAudit(CTX,verified?'channel-verified':'channel-unverified','channel',cid);}catch(_){}toast(verified?'Channel verified':'Verification revoked');render(true);}});return;
+  }
+  if (action === 'admin-qvids-toggle') {
+    e.preventDefault(); const cid=el.dataset.cid; const ch=state.channels[cid]; if(!ch||!isAdmin())return;
+    const current=String(ch.publishingMode||'FREE').toUpperCase()==='REVIEW'?'REVIEW':'FREE'; const next=current==='REVIEW'?'FREE':'REVIEW';
+    if(!confirm(`${next==='REVIEW'?'Enable QVids: every new upload from this channel must be approved before becoming public.':'Disable QVids: new uploads will follow normal publishing rules.'}\n\nChannel: ${ch.name||cid}`))return;
+    import('./sec.js?v=32').then(({setPublishingMode})=>setPublishingMode(CTX,cid,next,'QVids toggle')).then(ok=>{if(ok)render(true);});return;
+  }
+  if (action === 'admin-channel-warn' || action === 'admin-channel-email') {
+    e.preventDefault(); const cid=el.dataset.cid; const ch=state.channels[cid]; if(!ch||!isAdmin())return;
+    const subject=prompt(action==='admin-channel-warn'?'Warning subject:':'Inbox message subject:',action==='admin-channel-warn'?'Community Guidelines warning':'Message from PIXELTube Admin'); if(subject===null)return;
+    const reason=prompt(action==='admin-channel-warn'?'Warning reason / policy violated:':'Message to send to this channel owner:',''); if(reason===null)return;
+    adminCreateModerationThread(cid,subject,reason,action==='admin-channel-warn'?'warning':'message').then(ok=>{if(ok)render(true);});return;
+  }
+  if (action === 'admin-warn-video') {
+    e.preventDefault(); const vid=el.dataset.vid; const v=state.videos[vid]; const cid=el.dataset.cid||v?.channelId; if(!v||!cid||!isAdmin())return;
+    const reason=prompt(`Warning for video “${v.title||vid}” — include the reason/policy:`, ''); if(reason===null)return;
+    adminCreateModerationThread(cid,'Warning about video: '+(v.title||vid),reason,'video-warning',vid).then(ok=>{if(ok)render(true);});return;
+  }
+  if (action === 'admin-thread-reply') {
+    e.preventDefault(); const cid=el.dataset.cid,tid=el.dataset.tid,ch=state.channels[cid],thread=ch?.moderationInbox?.[tid]; const box=document.querySelector(`[data-admin-thread-reply][data-cid="${CSS.escape(cid)}"][data-tid="${CSS.escape(tid)}"]`); const message=String(box?.value||'').trim();
+    if(!isAdmin()||!ch||!thread||thread.closed){toast('This conversation is not available for replies');return;} if(!message){toast('Write a reply first');return;}
+    const mid='m_'+Date.now().toString(36)+Math.random().toString(36).slice(2,5);const next={...thread,updatedAt:Date.now(),messages:{...(thread.messages||{}),[mid]:{senderUid:PIXLECT.user?.uid||'',senderName:PIXLECT.user?.username||'PIXELTube Admin',senderRole:'admin',text:message.slice(0,1000),ts:Date.now()}}};
+    adminPersistRecord('channel',cid,{moderationInbox:{...(ch.moderationInbox||{}),[tid]:next}}).then(ok=>{if(ok){toast('Reply sent');render(true);}});return;
+  }
+  if (action === 'admin-thread-reopen') {
+    e.preventDefault(); const cid=el.dataset.cid, tid=el.dataset.tid, ch=state.channels[cid], thread=ch?.moderationInbox?.[tid]; if(!isAdmin()||!ch||!thread||!thread.closed){toast('Only an administrator can reopen a closed conversation');return;} const next={...thread,closed:false,reopenedAt:Date.now(),reopenedBy:PIXLECT.user?.username||'admin',updatedAt:Date.now()}; adminPersistRecord('channel',cid,{moderationInbox:{...(ch.moderationInbox||{}),[tid]:next}}).then(ok=>{if(ok){toast('Conversation reopened');render(true);}}); return;
+  }
+  if (action === 'admin-thread-close') {
+    e.preventDefault(); const cid=el.dataset.cid, tid=el.dataset.tid, ch=state.channels[cid], thread=ch?.moderationInbox?.[tid]; if(!ch||!thread||!isAdmin())return;
+    if(!confirm('Close this conversation? The channel owner will no longer be able to reply to this thread.'))return;
+    const next={...thread,closed:true,closedAt:Date.now(),closedBy:PIXLECT.user?.username||'admin',updatedAt:Date.now()};
+    adminPersistRecord('channel',cid,{moderationInbox:{...(ch.moderationInbox||{}),[tid]:next}}).then(ok=>{if(ok){toast('Conversation closed');render(true);}});return;
+  }
+  if (action === 'admin-channel-delete') {
+    e.preventDefault(); const cid=el.dataset.cid, ch=state.channels[cid]; if(!ch||!isAdmin())return;
+    const ownedVideos=Object.values(state.videos||{}).filter(v=>v.channelId===cid);
+    if(ownedVideos.length){toast(`Delete or reassign the ${ownedVideos.length} video(s) first. Channel deletion will not cascade-delete content.`);return;}
+    if(!confirm(`Permanently delete channel “${ch.name||cid}”? This cannot be undone.`))return;
+    (async()=>{try{if(state.mode==='local'&&localDB){delete localDB.channels[cid];persistLocal();applyData(localDB);}else{await remove(ref(db,`pixeltube/channels/${cid}`));if(ch.ownerUid)await remove(ref(db,`pixeltube/users/pl_${ch.ownerUid}/channels/${cid}`));}toast('Channel deleted');location.hash='#/admin/users';render(true);}catch(err){toast('Could not delete channel: '+(err?.message||'database error'));}})();return;
+  }
+  if (action === 'admin-bulk-flag') {
+    e.preventDefault(); const ids=[...document.querySelectorAll('[data-admin-video-select]:checked')].map(x=>x.value); if(!ids.length){toast('Select at least one video');return;}
+    const raw=prompt(`Flags for ${ids.length} selected video(s), comma-separated (e.g. AI, unsafe, #over10yrs):`,'');if(raw===null)return; const tags=[...new Set(raw.split(',').map(t=>t.trim().slice(0,40)).filter(Boolean))].slice(0,20);
+    (async()=>{let okCount=0;for(const vid of ids){const v=state.videos[vid];if(v&&await adminPersistRecord('video',vid,{moderationTags:tags,moderation:{...(v.moderation||{}),flagged:tags.length>0,flaggedAt:Date.now(),flaggedBy:PIXLECT.user?.username||'admin'}}))okCount++;}toast(`Updated flags on ${okCount}/${ids.length} videos`);render(true);})();return;
+  }
+  if (['admin-bulk-hide', 'admin-bulk-restore', 'admin-bulk-approve', 'admin-bulk-ignore', 'admin-bulk-disapprove'].includes(action)) {
+    e.preventDefault();
+    if (!isAdmin()) { toast('Admin only'); return; }
+    const ids = [...document.querySelectorAll('[data-admin-video-select]:checked')].map(box => box.value);
+    if (!ids.length) { toast('Select at least one video'); return; }
+    let reason = '';
+    if (action === 'admin-bulk-disapprove') { reason = prompt('Reason for declining all selected videos (required):', ''); if (reason === null) return; if (!reason.trim()) { toast('A reason is required'); return; } }
+    const label = ({'admin-bulk-hide':'hide/restrict','admin-bulk-restore':'restore visibility for','admin-bulk-approve':'approve','admin-bulk-ignore':'ignore review for','admin-bulk-disapprove':'decline'})[action];
+    if (!confirm(`${label} ${ids.length} selected video(s)?`)) return;
+    (async () => {
+      let success = 0;
+      for (const vid of ids) {
+        const video = state.videos[vid]; if (!video) continue;
+        let ok = false;
+        if (action === 'admin-bulk-hide' || action === 'admin-bulk-restore') {
+          const hidden = action === 'admin-bulk-hide';
+          ok = await adminPersistRecord('video', vid, { moderation: { ...(video.moderation || {}), hidden, restricted: hidden, visibilityChangedAt: Date.now(), visibilityChangedBy: PIXLECT.user?.username || 'admin' } });
+          if (ok) { try { const { writeModerationAudit } = await import('./sec.js?v=32'); await writeModerationAudit(CTX, hidden ? 'video-restricted' : 'video-restored', 'video', vid); } catch (_) {} }
+        } else {
+          const decision = action === 'admin-bulk-approve' ? 'approve' : action === 'admin-bulk-ignore' ? 'ignore' : 'disapprove';
+          ok = await (await import('./sec.js?v=32')).reviewVideo(CTX, vid, decision, reason);
+        }
+        if (ok) success++;
+      }
+      toast(`Updated ${success}/${ids.length} selected videos`); render(true);
+    })();
+    return;
+  }
+  if (action === 'admin-bulk-delete') {
+    e.preventDefault(); const ids=[...document.querySelectorAll('[data-admin-video-select]:checked')].map(x=>x.value); if(!ids.length){toast('Select at least one video');return;}
+    if(!confirm(`Permanently delete ${ids.length} selected video(s)? This cannot be undone.`))return;
+    (async()=>{let count=0;for(const vid of ids){try{await deleteVideo(vid);if(!state.videos[vid])count++;}catch(err){console.error(err);}}toast(`Deleted ${count}/${ids.length} selected videos`);render(true);})();return;
+  }
+  if (action === 'inbox-new') {
+    e.preventDefault(); if (!isAdmin()) { toast('Only PIXELTube Admin can start an admin inbox conversation'); return; } if(!PIXLECT.user){pixlectSignIn();return;} const cid=document.getElementById('inboxNewChannel')?.value; const ch=state.channels[cid]; const type=String(document.getElementById('inboxNewType')?.value||'message'); const subject=String(document.getElementById('inboxNewSubject')?.value||'').trim() || (type==='appeal'?'Appeal a moderation decision':'Message to PIXELTube moderation'); const message=String(document.getElementById('inboxNewMessage')?.value||'').trim();
+    if(!ch||ch.ownerUid!==PIXLECT.user.uid){toast('Choose one of your channels');return;} if(!message){toast('Write a message first');return;}
+    const now=Date.now(),tid='user_'+now.toString(36)+Math.random().toString(36).slice(2,6),mid='m_'+now.toString(36); const thread={id:tid,type:type==='appeal'?'user-appeal':'user-message',subject:subject.slice(0,120),reason:message.slice(0,1000),closed:false,createdAt:now,updatedAt:now,createdBy:PIXLECT.user.username||'channel owner',messages:{[mid]:{senderUid:PIXLECT.user.uid,senderName:PIXLECT.user.username||'Channel owner',senderRole:'user',text:message.slice(0,1000),ts:now}}};
+    (async()=>{try{if(state.mode==='local'&&localDB){localDB.channels[cid]={...ch,moderationInbox:{...(ch.moderationInbox||{}),[tid]:thread}};persistLocal();applyData(localDB);}else{await set(ref(db,`pixeltube/channels/${cid}/moderationInbox/${tid}`),thread);state.channels[cid]={...ch,moderationInbox:{...(ch.moderationInbox||{}),[tid]:thread}};}toast('Message sent to moderation');render(true);}catch(err){toast('Could not send message: '+(err?.message||'database error'));}})();return;
+  }
+  if (action === 'inbox-reopen') {
+    e.preventDefault(); if (!isAdmin()) { toast('Only PIXELTube Admin can reopen a conversation'); return; }
+    const cid = el.dataset.cid, tid = el.dataset.tid, ch = state.channels[cid], thread = ch?.moderationInbox?.[tid];
+    if (!PIXLECT.user || !ch || ch.ownerUid !== PIXLECT.user.uid || !thread) { toast('You cannot reopen this conversation'); return; }
+    if (!confirm('Reopen this conversation so you can reply again?')) return;
+    const next = { ...thread, closed: false, reopenedAt: Date.now(), reopenedBy: PIXLECT.user.username || 'channel owner', updatedAt: Date.now() };
+    (async () => { try { if (state.mode === 'local' && localDB) { localDB.channels[cid] = { ...ch, moderationInbox: { ...(ch.moderationInbox || {}), [tid]: next } }; persistLocal(); applyData(localDB); } else { await update(ref(db, `pixeltube/channels/${cid}/moderationInbox/${tid}`), next); state.channels[cid] = { ...ch, moderationInbox: { ...(ch.moderationInbox || {}), [tid]: next } }; } toast('Conversation reopened'); render(true); } catch (err) { toast('Could not reopen conversation: ' + (err?.message || 'database error')); } })();
+    return;
+  }
+  if (action === 'inbox-reply') {
+    e.preventDefault(); const cid=el.dataset.cid,tid=el.dataset.tid,ch=state.channels[cid],thread=ch?.moderationInbox?.[tid]; const box=document.querySelector(`[data-inbox-reply][data-cid="${CSS.escape(cid)}"][data-tid="${CSS.escape(tid)}"]`); const message=String(box?.value||'').trim();
+    if(!PIXLECT.user||!ch||ch.ownerUid!==PIXLECT.user.uid){toast('You cannot reply to this channel thread');return;} if(!thread||!Object.values(thread.messages||{}).some(m=>m && m.senderRole==='admin') && thread.createdByRole!=='admin'){toast('You can only reply to conversations started by PIXELTube Admin');return;} if(thread.closed){toast('This admin conversation is closed. Only an administrator can reopen it.');return;} if(!message){toast('Write a message first');return;}
+    const mid='m_'+Date.now().toString(36)+Math.random().toString(36).slice(2,5); const next={...thread,updatedAt:Date.now(),messages:{...(thread.messages||{}),[mid]:{senderUid:PIXLECT.user.uid,senderName:PIXLECT.user.username||'Channel owner',senderRole:'user',text:message.slice(0,1000),ts:Date.now()}}};
+    (async()=>{try{if(state.mode==='local'&&localDB){localDB.channels[cid]={...ch,moderationInbox:{...(ch.moderationInbox||{}),[tid]:next}};persistLocal();applyData(localDB);}else{await update(ref(db,`pixeltube/channels/${cid}/moderationInbox/${tid}`),next);state.channels[cid]={...ch,moderationInbox:{...(ch.moderationInbox||{}),[tid]:next}};}toast('Reply sent');render(true);}catch(err){toast('Could not send reply: '+(err?.message||'database error'));}})();return;
+  }
+
   if (action === 'pl-add') {
     e.preventDefault();
     addToPlaylist(el.dataset.pid, el.dataset.vid);
@@ -2960,6 +3215,51 @@ document.addEventListener('click', (e) => {
     deletePlaylist(pid).then(() => { location.hash = '#/playlists'; toast('Playlist deleted'); });
   }
 });
+
+// PIXELTube V3 admin controls: flags, verification, channel inbox and bulk selection.
+async function adminPersistRecord(type, id, patch) {
+  if (!isAdmin()) { toast('Admin only'); return false; }
+  const collection = type === 'video' ? 'videos' : 'channels';
+  const existing = state[collection]?.[id];
+  if (!existing) { toast(`${type} not found`); return false; }
+  try {
+    if (state.mode === 'local' && localDB) {
+      localDB[collection] = localDB[collection] || {};
+      localDB[collection][id] = { ...existing, ...patch };
+      persistLocal(); applyData(localDB);
+    } else {
+      if (!db) throw new Error('Firebase is not connected');
+      await update(ref(db, `pixeltube/${collection}/${id}`), patch);
+      state[collection][id] = { ...existing, ...patch };
+    }
+    return true;
+  } catch (error) { console.error('[admin] record update failed', error); toast('Could not save: ' + (error?.message || 'database error')); return false; }
+}
+
+async function adminCreateModerationThread(cid, subject, reason, type = 'warning', videoId = '') {
+  if (!isAdmin()) { toast('Admin only'); return false; }
+  const channel = state.channels[cid];
+  if (!channel) { toast('Channel not found'); return false; }
+  if (!reason.trim()) { toast('A reason/message is required'); return false; }
+  const now = Date.now();
+  const tid = 'mod_' + now.toString(36) + Math.random().toString(36).slice(2, 7);
+  const thread = { id: tid, type, subject: String(subject).slice(0,120), reason: String(reason).slice(0,1000), videoId: videoId || '', closed: false, createdAt: now, updatedAt: now, createdBy: PIXLECT.user?.username || 'admin', messages: { ['m_' + now.toString(36)]: { senderUid: PIXLECT.user?.uid || '', senderName: PIXLECT.user?.username || 'PIXELTube Admin', senderRole: 'admin', text: String(reason).slice(0,1000), ts: now } } };
+  try {
+    const inbox = { ...(channel.moderationInbox || {}), [tid]: thread };
+    const ok = await adminPersistRecord('channel', cid, { moderationInbox: inbox });
+    if (!ok) return false;
+    try { const { writeModerationAudit } = await import('./sec.js?v=32'); await writeModerationAudit(CTX, type, 'channel', cid, reason, subject + (videoId ? ` · video ${videoId}` : '')); } catch (e) { console.warn('[admin] audit write failed', e); }
+    toast('Message sent to the channel moderation inbox'); return true;
+  } catch (e) { console.error(e); toast('Could not send inbox message'); return false; }
+}
+
+document.addEventListener('change', (event) => {
+  if (event.target.matches('[data-admin-select-all]')) {
+    document.querySelectorAll('[data-admin-video-select]').forEach(box => { box.checked = event.target.checked; });
+  }
+});
+
+// Admin global search filters are wired in sec.js alongside the admin views.
 
 function wireSearchInput() {
   const input = document.getElementById('searchInput');
@@ -3015,7 +3315,7 @@ if (document.body.dataset.page === 'creator') {
   location.hash = '#/studio';
 }
 if (document.body.dataset.page === 'admin') {
-  location.hash = '#/admin';
+  location.hash = '#/admin/dashboard';
 }
 
 state.route = parseRoute();

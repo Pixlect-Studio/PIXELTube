@@ -346,15 +346,6 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
 .player{width:100%;aspect-ratio:16/9;background:#000;border-radius:var(--r);overflow:hidden;border:1px solid var(--line);position:relative}
 .player video{width:100%;height:100%;display:block;background:#000}
 .player .loading{position:absolute;inset:0;display:grid;place-items:center;color:var(--muted);font-size:13px;background:#000}
-.video-audio-toggle{
-  position:absolute;top:12px;right:12px;z-index:3;display:flex;align-items:center;gap:7px;
-  min-height:38px;padding:7px 12px;border:1px solid rgba(255,255,255,.3);border-radius:99px;
-  background:rgba(0,0,0,.72);color:#fff;font-size:12px;font-weight:750;
-  cursor:pointer;pointer-events:auto;touch-action:manipulation;
-}
-.video-audio-toggle:hover{background:rgba(0,0,0,.9)}
-.video-audio-toggle:focus-visible{outline:2px solid #fff;outline-offset:3px}
-.video-audio-toggle [aria-hidden="true"]{font-size:16px}
 .w-title{font-size:20px;font-weight:800;line-height:1.35;margin:16px 0 12px;letter-spacing:-.3px}
 .w-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding-bottom:16px;border-bottom:1px solid var(--line)}
 .w-chan{display:flex;align-items:center;gap:12px;margin-right:auto;min-width:0}
@@ -761,6 +752,18 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
 .admin-row:first-of-type{border-top:0}
 .admin-row>.admin-info:first-child{grid-column:1 / 3}
 .admin-row-dim{opacity:.74}
+
+.admin-search-panel{padding:18px}
+.admin-search-label{display:block;margin-bottom:8px;font-size:12px;font-weight:800;color:var(--muted)}
+.admin-search-box{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--line);border-radius:12px;background:var(--bg)}
+.admin-search-box>span{font-size:23px;color:var(--muted);line-height:1}
+.admin-search-box input{flex:1;min-width:0;border:0;outline:0;background:transparent;color:var(--text);font:inherit;font-size:14px;padding:7px 0}
+.admin-search-box input::placeholder{color:var(--muted)}
+.admin-search-status{margin:10px 0 2px;color:var(--muted);font-size:12px}
+.admin-search-results{margin-top:8px}
+.admin-search-result[hidden],[data-admin-search-empty][hidden]{display:none!important}
+.admin-search-kind{display:inline-block;margin-left:5px;padding:2px 5px;border:1px solid var(--line);border-radius:5px;color:var(--muted);font-size:9px;letter-spacing:.5px;vertical-align:2px}
+
 .admin-thumb{position:relative;width:100%;aspect-ratio:16/9;overflow:hidden;border-radius:8px;background:var(--surface2)}
 .admin-thumb img{width:100%;height:100%;object-fit:cover}
 .admin-thumb .placeholder{position:absolute;inset:0;display:grid;place-items:center;color:var(--muted);font-size:24px}
@@ -826,7 +829,6 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
   .chan-grid{grid-template-columns:1fr;padding:14px}
   .watch{padding:12px 14px 40px;gap:18px}
   .w-title{font-size:18px}
-  .video-audio-toggle{top:8px;right:8px;min-height:36px;padding:6px 10px}
   .w-row{gap:8px}
   .pill{padding:8px 12px;font-size:12.5px}
   .mini-card .t{width:min(42vw,158px)}
@@ -872,3 +874,68 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
 @media(prefers-reduced-motion:reduce){
   *,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
 }
+
+/* PIXELTube moderation quick link */
+.caution-nav-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-right: 9px;
+  padding: 8px 10px;
+  border: 1px solid rgba(251,191,36,.34);
+  border-radius: 10px;
+  color: var(--warn);
+  background: rgba(251,191,36,.08);
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.caution-nav-link:hover { background: rgba(251,191,36,.15); }
+.caution-nav-count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 99px;
+  color: #111827;
+  background: var(--warn);
+  font-size: 10px;
+  line-height: 1;
+}
+@media (max-width: 720px) {
+  .caution-nav-link { font-size: 0; padding: 9px; gap: 0; }
+  .caution-nav-link > span:first-child { font-size: 14px; }
+  .caution-nav-count { font-size: 10px; }
+}
+
+
+/* PIXELTube V3.0.0 Beta admin tools */
+.admin-stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:12px;margin:16px 0 24px}
+.admin-stat-card{display:flex;flex-direction:column;gap:8px;padding:17px;border:1px solid var(--line);border-radius:14px;background:var(--surface);color:var(--text);text-decoration:none;min-height:100px}
+.admin-stat-card:hover{border-color:var(--accent);transform:translateY(-1px)}
+.admin-stat-card span,.admin-stat-card small{color:var(--muted);font-size:12px}.admin-stat-card strong{font-size:28px;line-height:1.1}
+.admin-section-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}.admin-section-heading a{color:var(--accent);font-size:13px}
+.admin-control-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:9px;margin:12px 0}
+.admin-tag,.admin-verified{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:800;letter-spacing:.2px;vertical-align:middle;border:1px solid rgba(251,191,36,.35);background:rgba(251,191,36,.1);color:var(--warn)}
+.admin-verified{border-color:rgba(56,189,248,.4);background:rgba(56,189,248,.12);color:#38bdf8;font-size:11px}
+.admin-bulk-toolbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px;border:1px solid var(--line);border-radius:12px;margin-bottom:12px;background:var(--surface)}
+.admin-bulk-toolbar label,.admin-select-box{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)}.admin-select-box{padding:0 4px}.admin-select-box input,.admin-bulk-toolbar input{accent-color:var(--accent)}
+.admin-report-filters{display:flex;align-items:end;gap:12px;flex-wrap:wrap}.admin-report-filters label{display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--muted);min-width:180px;flex:1}.admin-report-filters input,.admin-report-filters select,.admin-reply textarea{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:9px;background:var(--surface2);color:var(--text);font:inherit}
+.admin-message{padding:10px 12px;margin:8px 0;border-left:2px solid var(--line);background:var(--surface2);border-radius:8px}.admin-message small{color:var(--muted);font-size:10px}.admin-message p{margin:6px 0 0;white-space:pre-wrap;overflow-wrap:anywhere}
+.admin-reply{display:flex;flex-direction:column;gap:8px;margin-top:12px}.admin-reply textarea{min-height:72px;resize:vertical}
+.admin-row[hidden]{display:none!important}
+@media(max-width:640px){.admin-report-filters{display:block}.admin-report-filters label{margin-bottom:10px}.admin-stats-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.admin-row{flex-wrap:wrap}}
+
+.admin-search-filters{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0}.admin-search-filters label{display:flex;flex-direction:column;gap:5px;color:var(--muted);font-size:11px;min-width:140px;flex:1}.admin-search-filters select{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:9px;background:var(--surface2);color:var(--text);font:inherit}
+
+.moderation-inbox-nav{display:inline-flex;align-items:center;gap:6px;padding:7px 10px;border:1px solid var(--line);border-radius:999px;color:var(--muted);font-size:12px;font-weight:700;white-space:nowrap}.moderation-inbox-nav:hover{color:var(--text);border-color:var(--accent)}.moderation-inbox-nav span{display:inline-grid;place-items:center;min-width:17px;height:17px;padding:0 4px;border-radius:99px;background:var(--warn);color:#111827;font-size:10px;font-weight:900}
+
+/* PIXELTube V3.2.0 report details */
+.admin-report-details{margin-top:10px;border:1px solid var(--line);border-radius:9px;padding:8px 10px;background:var(--surface2)}.admin-report-details summary{cursor:pointer;font-size:12px;font-weight:800;color:var(--text)}.admin-report-detail-body{padding-top:8px}.admin-report-item{align-items:start}.admin-report-item .admin-actions{align-self:center}
+/* PIXELTube V3.2.0 Beta admin details */
+.admin-report-details{margin-top:10px;border:1px solid var(--line);border-radius:9px;padding:8px 10px;background:var(--surface2)}
+.admin-report-details summary{cursor:pointer;font-size:12px;font-weight:800;color:var(--text)}
+.admin-report-detail-body{padding-top:8px}
+.admin-report-item{align-items:start}
+.admin-report-item .admin-actions{align-self:center}

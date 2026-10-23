@@ -74,6 +74,7 @@ export function viewAdmin(ctx, sub) {
     case 'suspended': return viewAdminSuspended(ctx);
     case 'videos':    return viewAdminVideos(ctx);
     case 'users':     return viewAdminUsers(ctx);
+    case 'search':    return viewAdminSearch(ctx);
     default:          return viewAdminReports(ctx);
   }
 }
@@ -90,7 +91,8 @@ function adminWrap(ctx, active, contentHTML) {
     { id: 'reports',   label: 'Reports',   href: '#/admin',           count: pending },
     { id: 'suspended', label: 'Suspended', href: '#/admin/suspended', count: suspended },
     { id: 'videos',    label: 'All videos',href: '#/admin/videos' },
-    { id: 'users',     label: 'All channels', href: '#/admin/users' }
+    { id: 'users',     label: 'All channels', href: '#/admin/users' },
+    { id: 'search',    label: 'Search', href: '#/admin/search' }
   ];
 
   return `
@@ -282,6 +284,69 @@ function viewAdminVideos(ctx) {
   `;
 
   return adminWrap(ctx, 'videos', content);
+}
+
+
+/* ============================================================
+   GLOBAL SEARCH — channels + videos
+   Client-side search across the data already loaded into the admin panel.
+   ============================================================ */
+function viewAdminSearch(ctx) {
+  const channels = Object.values(ctx.state.channels || {})
+    .filter(c => c && c.id)
+    .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+  const videos = ctx.videosSorted().filter(v => v && v.id);
+
+  const channelRows = channels.map(c => {
+    const count = videos.filter(v => v.channelId === c.id).length;
+    const haystack = [c.name, c.handle, c.id, c.ownerUid, c.username, c.description].join(' ');
+    return `
+      <div class="admin-row admin-search-result" data-admin-search-item data-search-kind="channel" data-search-text="${esc(haystack)}">
+        ${avatarHTML(c, 'lg')}
+        <div class="admin-info">
+          <div class="admin-title">${esc(c.name || 'Untitled channel')} <span class="admin-search-kind">CHANNEL</span></div>
+          <div class="admin-meta">${esc(c.handle || '')} · ${count} video${count === 1 ? '' : 's'} · ID: <code>${esc(c.id)}</code></div>
+          <div class="admin-meta">Owner UID: <code>${esc(c.ownerUid || 'unknown')}</code></div>
+        </div>
+        <div class="admin-actions"><a class="btn-secondary" href="#/channel/${esc(c.id)}" target="_blank" rel="noopener">View channel</a></div>
+      </div>`;
+  }).join('');
+
+  const videoRows = videos.map(v => {
+    const c = ctx.chanOf(v.id) || {};
+    const haystack = [v.title, v.id, v.description, v.kind, c.name, c.handle, c.id, c.ownerUid].join(' ');
+    return `
+      <div class="admin-row admin-search-result" data-admin-search-item data-search-kind="video" data-search-text="${esc(haystack)}">
+        <div class="admin-thumb">${thumbHTML(v)}</div>
+        <div class="admin-info">
+          <div class="admin-title">${esc(v.title || 'Untitled video')} <span class="admin-search-kind">VIDEO</span></div>
+          <div class="admin-meta">Channel: <b>${esc(c.name || 'Unknown channel')}</b> · ${v.kind === 'mini' ? 'Mini' : 'Long'} · ID: <code>${esc(v.id)}</code></div>
+          <div class="admin-meta">${fmt(v.views)} views · ${esc(timeAgo(v.createdAt))}</div>
+        </div>
+        <div class="admin-actions">
+          <a class="btn-secondary" href="#/watch/${esc(v.id)}" target="_blank" rel="noopener">View video</a>
+          <button class="btn-secondary" data-action="admin-delete-standalone" data-vid="${esc(v.id)}" type="button" style="color:var(--accent)">Delete</button>
+        </div>
+      </div>`;
+  }).join('');
+
+  const content = `
+    <div class="admin-head">
+      <div><h1>Search channels &amp; videos</h1><p>Search names, handles, titles, channel IDs, video IDs and owner UIDs.</p></div>
+      <p>${channels.length} channels · ${videos.length} videos</p>
+    </div>
+    <section class="admin-section admin-search-panel">
+      <label class="admin-search-label" for="adminGlobalSearch">Search PIXELTube</label>
+      <div class="admin-search-box"><span aria-hidden="true">⌕</span><input id="adminGlobalSearch" type="search" data-admin-search-input placeholder="Try a channel name, video title, @handle, or ID…" autocomplete="off" aria-controls="adminGlobalSearchResults"><button type="button" class="btn-secondary" data-admin-search-clear>Clear</button></div>
+      <p class="admin-search-status" data-admin-search-count aria-live="polite">Showing ${channels.length + videos.length} results. Type to filter.</p>
+      <div id="adminGlobalSearchResults" class="admin-search-results">
+        ${channelRows || '<div class="admin-empty">No channels available.</div>'}
+        ${videoRows || '<div class="admin-empty">No videos available.</div>'}
+        <div class="admin-empty" data-admin-search-empty hidden>No channels or videos match that search.</div>
+      </div>
+    </section>`;
+
+  return adminWrap(ctx, 'search', content);
 }
 
 /* ============================================================
