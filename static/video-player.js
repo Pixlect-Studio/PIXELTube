@@ -23,7 +23,7 @@
     const loadId = ++socialLoadId;
     try {
       const user = currentUser();
-      const identity = PIXELTubeDemoSocial.getIdentity(user);
+      const identity = (user?.uid || user?.PIXELUserUUID || user?.pixelUserUUID || user?.uuid);
       const social = await PIXELTubeAPI.getVideoSocial(video.id, user);
       if (loadId !== socialLoadId) return;
       document.getElementById('likeCount').textContent = social.likes;
@@ -198,18 +198,25 @@
     submitReport.disabled = true;
     reportStatus.textContent = 'Sending report…';
     try {
-      PIXELTubeDemoSocial.reportVideo(
-        currentUser(),
-        video.id,
-        video.title,
-        document.getElementById('reportReason').value,
-        document.getElementById('reportDetails').value,
-      );
-      reportStatus.textContent = 'Report sent to the local moderator queue. Thank you for helping keep PIXELTube safe.';
-      reportForm.reset();
+      if (window.PIXELTubeDemoSocial?.reportVideo) {
+        PIXELTubeDemoSocial.reportVideo(
+          currentUser(),
+          video.id,
+          video.title,
+          document.getElementById('reportReason').value,
+          document.getElementById('reportDetails').value,
+        );
+        reportStatus.textContent = 'Report sent. Thank you for helping keep PIXELTube safe.';
+        reportForm.reset();
+      } else {
+        reportStatus.textContent = 'Reporting not available.';
+        submitReport.disabled = false;
+        return;
+      }
     } catch (error) {
       reportStatus.textContent = error.message;
       submitReport.disabled = false;
+      return;
     }
   });
 

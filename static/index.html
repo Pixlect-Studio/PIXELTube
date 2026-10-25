@@ -39,7 +39,7 @@
       <button id="sidebarToggle" class="icon-btn" aria-label="Toggle sidebar">
         <i class="fas fa-bars"></i>
       </button>
-      <a href="index.html" class="brand">
+      <a href="index.html" class="brand" id="brandHome">
         <img class="brand-icon" src="favicon.ico" alt="">
         <span class="brand-red">PIXEL</span><span class="brand-black">Tube</span>
       </a>
@@ -78,9 +78,9 @@
     <!-- SIDEBAR -->
     <aside id="sidebar" class="sidebar">
       <nav>
-        <a href="index.html" class="nav-item">
+        <button type="button" class="nav-item" id="homeNavBtn">
           <i class="fas fa-home"></i><span class="nav-label">Home</span>
-        </a>
+        </button>
         <button type="button" class="nav-item" data-feed="minis" title="Browse PIXELTube Minis">
           <i class="fas fa-bolt"></i><span class="nav-label">Minis</span>
         </button>
@@ -256,6 +256,11 @@
       return window.PIXELTubeAuth?.user || null;
     }
 
+    function getUserId(user) {
+      const id = user?.uid || user?.PIXELUserUUID || user?.pixelUserUUID || user?.uuid || user?.PIXELUser?.UUID || user?.pixelUser?.uuid;
+      return typeof id === 'string' && id.trim() ? id.trim() : null;
+    }
+
     let watchSocialLoadId = 0;
     async function renderWatchSocial() {
       if (!currentVideo) return;
@@ -263,7 +268,7 @@
       const loadId = ++watchSocialLoadId;
       try {
         const user = signedInUser();
-        const identity = PIXELTubeDemoSocial.getIdentity(user);
+        const identity = getUserId(user);
         const social = await PIXELTubeAPI.getVideoSocial(videoId, user);
         if (loadId !== watchSocialLoadId || currentVideo?.id !== videoId) return;
         document.getElementById('watchLikes').textContent = social.likes;
@@ -326,7 +331,7 @@
       const badge = document.getElementById('notificationBadge');
       const list = document.getElementById('notificationsList');
       list.replaceChildren();
-      const identity = PIXELTubeDemoSocial.getIdentity(signedInUser());
+      const identity = getUserId(signedInUser());
       if (!identity) {
         badge.classList.add('hidden');
         const message = document.createElement('p');
@@ -378,7 +383,7 @@
       };
       const empty = document.getElementById('emptyState');
       empty.querySelector('h2').textContent = titles[activeFeed] || (allVideos.length ? 'No matching videos' : 'No videos yet');
-      empty.querySelector('p').textContent = PIXELTubeDemoSocial.getIdentity(signedInUser())
+      empty.querySelector('p').textContent = getUserId(signedInUser())
         ? 'Your activity is stored with your PIXLECT account ID.'
         : 'Sign in with PIXLECT to see account activity.';
     }
@@ -564,7 +569,7 @@
       let feedIds = null;
       if (activeFeed !== 'all' && activeFeed !== 'minis') {
         try {
-          const identity = PIXELTubeDemoSocial.getIdentity(signedInUser());
+          const identity = getUserId(signedInUser());
           if (!identity) throw new Error('Sign in with PIXLECT to view account activity.');
           const activity = await PIXELTubeAPI.getUserActivity(signedInUser());
           if (activeFeed === 'subscriptions') {
@@ -665,6 +670,29 @@
       }
     });
     document.addEventListener('DOMContentLoaded', loadVideos);
+    
+    // Home navigation - prevent reload and refresh feed faster
+    const brandHome = document.getElementById('brandHome');
+    const homeNavBtn = document.getElementById('homeNavBtn');
+    function goHome(e) {
+      if (e) e.preventDefault();
+      activeFeed = 'all';
+      activeCategory = 'all';
+      searchInput.value = '';
+      document.querySelectorAll('.chip[data-category]').forEach(item => item.classList.toggle('active', item.dataset.category === 'all'));
+      document.querySelectorAll('.nav-item[data-feed]').forEach(item => item.classList.remove('active'));
+      if (homeNavBtn) homeNavBtn.classList.add('active');
+      if (brandHome) brandHome.classList.add('active');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      renderVideos();
+    }
+    if (brandHome) {
+      brandHome.addEventListener('click', goHome);
+    }
+    if (homeNavBtn) {
+      homeNavBtn.classList.add('active');
+      homeNavBtn.addEventListener('click', goHome);
+    }
   </script>
 </body>
 </html>
