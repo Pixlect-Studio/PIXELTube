@@ -1,0 +1,393 @@
+/* ============================================================
+   PIXELTube — Gaming Theme
+   Flat, crisp dark mode with PIXELTube indigo accents and no glows.
+   ============================================================ */
+
+[data-theme="gaming"] {
+  /* --- Color Palette --- */
+  --bg:            #0a0a14;
+  --bg-soft:       #12121f;
+  --bg-muted:      #1a1a2e;
+  --text:          #f5f5ff;
+  --text-soft:     #a8a8c8;
+  --text-dim:      #7a7a9a;
+  --border:        #23233a;
+  --border-strong: #2f2f4a;
+  --brand:         #0c1062;
+  --brand-hover:   #080c4d;
+  --accent:        #22d3ee;
+
+  /* --- Flat Shadows (no glow) --- */
+  --shadow-sm:     0 1px 2px rgba(0,0,0,0.5);
+  --shadow-md:     0 4px 12px rgba(0,0,0,0.6);
+  --shadow-lg:     0 12px 24px rgba(0,0,0,0.7);
+}
+
+/* ============================================================
+   1. Base & Backgrounds
+   ============================================================ */
+[data-theme="gaming"] body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+}
+
+[data-theme="gaming"] .header {
+  background: var(--bg-soft);
+  border-bottom: 1px solid var(--border);
+}
+
+[data-theme="gaming"] .sidebar {
+  background: var(--bg-soft);
+  border-right: 1px solid var(--border);
+}
+
+[data-theme="gaming"] .main {
+  background: transparent;
+}
+
+/* ============================================================
+   2. Typography & Brand
+   ============================================================ */
+[data-theme="gaming"] .brand-red {
+  color: var(--brand);
+}
+[data-theme="gaming"] .brand-black {
+  color: var(--accent);
+}
+
+[data-theme="gaming"] .video-title,
+[data-theme="gaming"] .watch-title,
+[data-theme="gaming"] .modal h2 {
+  color: var(--text);
+}
+
+[data-theme="gaming"] .video-sub,
+[data-theme="gaming"] .watch-creator .subs {
+  color: var(--text-soft);
+}
+
+/* ============================================================
+   3. Navigation & Sidebar
+   ============================================================ */
+[data-theme="gaming"] .nav-item {
+  color: var(--text-soft);
+  border-radius: 8px;
+  transition: background 0.15s, color 0.15s;
+}
+[data-theme="gaming"] .nav-item i {
+  color: var(--text-dim);
+  transition: color 0.15s;
+}
+[data-theme="gaming"] .nav-item:hover {
+  background: var(--bg-muted);
+  color: var(--text);
+}
+[data-theme="gaming"] .nav-item:hover i {
+  color: var(--accent);
+}
+
+[data-theme="gaming"] .nav-divider {
+  border-color: var(--border);
+}
+
+[data-theme="gaming"] .icon-btn {
+  color: var(--text-soft);
+}
+[data-theme="gaming"] .icon-btn:hover {
+  background: var(--bg-muted);
+  color: var(--accent);
+}
+
+/* ============================================================
+   4. Search & Inputs
+   ============================================================ */
+[data-theme="gaming"] .search-box {
+  background: var(--bg-muted);
+  border-color: var(--border-strong);
+}
+[data-theme="gaming"] .search-box input {
+  color: var(--text);
+}
+[data-theme="gaming"] .search-box input::placeholder {
+  color: var(--text-dim);
+}
+[data-theme="gaming"] .search-box:focus-within {
+  border-color: var(--brand);
+}
+[data-theme="gaming"] .search-box button {
+  color: var(--text-dim);
+}
+[data-theme="gaming"] .search-box button:hover {
+  color: var(--accent);
+}
+
+[data-theme="gaming"] .input,
+[data-theme="gaming"] .textarea,
+[data-theme="gaming"] .select {
+  background: var(--bg-muted);
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+[data-theme="gaming"] .input::placeholder,
+[data-theme="gaming"] .textarea::placeholder {
+  color: var(--text-dim);
+}
+[data-theme="gaming"] .input:focus,
+[data-theme="gaming"] .textarea:focus,
+[data-theme="gaming"] .select:focus {
+  border-color: var(--brand);
+  outline: none;
+}
+
+/* ============================================================
+   5. Buttons & Chips
+   ============================================================ */
+[data-theme="gaming"] .btn-red,
+[data-theme="gaming"] .pixlect-btn {
+  background: var(--brand);
+  color: #fff;
+  border: none;
+  transition: background 0.15s;
+}
+[data-theme="gaming"] .btn-red:hover,
+[data-theme="gaming"] .pixlect-btn:hover {
+  background: var(--brand-hover);
+}
+
+[data-theme="gaming"] .btn-outline {
+  background: var(--bg-muted);
+  border-color: var(--border-strong);
+  color: var(--text-soft);
+}
+[data-theme="gaming"] .btn-outline:hover {
+  background: var(--bg-soft);
+  border-color: var(--brand);
+  color: var(--text);
+}
+
+[data-theme="gaming"] .chip {
+  background: var(--bg-muted);
+  color: var(--text-soft);
+  border: 1px solid var(--border);
+  transition: background 0.15s, color 0.15s;
+}
+[data-theme="gaming"] .chip:hover {
+  background: var(--bg-soft);
+  color: var(--text);
+}
+[data-theme="gaming"] .chip.active {
+  background: var(--brand);
+  color: #fff;
+  border-color: var(--brand);
+}
+
+/* ============================================================
+   6. Video Cards
+   ============================================================ */
+[data-theme="gaming"] .video-thumb {
+  background: var(--bg-muted);
+  border: 1px solid var(--border);
+}
+[data-theme="gaming"] .video-thumb::after {
+  color: var(--text-dim);
+  transition: color 0.2s;
+}
+[data-theme="gaming"] .video-card:hover .video-thumb {
+  border-color: var(--brand);
+}
+[data-theme="gaming"] .video-card:hover .video-thumb::after {
+  color: var(--accent);
+}
+
+/* ============================================================
+   7. Modals & Watch Page
+   ============================================================ */
+[data-theme="gaming"] .modal-backdrop {
+  background: rgba(0, 0, 0, 0.8);
+}
+[data-theme="gaming"] .modal {
+  background: var(--bg-soft);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-lg);
+}
+[data-theme="gaming"] .modal-close {
+  color: var(--text-soft);
+}
+[data-theme="gaming"] .modal-close:hover {
+  background: var(--bg-muted);
+  color: var(--accent);
+}
+
+[data-theme="gaming"] .watch-player {
+  background: #000;
+  border: 1px solid var(--border);
+}
+
+[data-theme="gaming"] .pill-group {
+  background: var(--bg-muted);
+  border: 1px solid var(--border);
+}
+[data-theme="gaming"] .pill-group button {
+  color: var(--text-soft);
+}
+[data-theme="gaming"] .pill-group button:hover {
+  background: var(--bg-soft);
+  color: var(--text);
+}
+[data-theme="gaming"] .pill-group .sep {
+  background: var(--border-strong);
+}
+
+[data-theme="gaming"] .pill {
+  background: var(--bg-muted);
+  color: var(--text-soft);
+  border: 1px solid var(--border);
+}
+[data-theme="gaming"] .pill:hover {
+  background: var(--bg-soft);
+  color: var(--text);
+}
+
+[data-theme="gaming"] .comments-section {
+  border-color: var(--border);
+}
+[data-theme="gaming"] .comment-input input {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+[data-theme="gaming"] .comment-input input:focus {
+  border-color: var(--brand);
+}
+
+/* ============================================================
+   8. Studio & Upload
+   ============================================================ */
+[data-theme="gaming"] .studio-tab {
+  color: var(--text-soft);
+}
+[data-theme="gaming"] .studio-tab:hover {
+  color: var(--text);
+}
+[data-theme="gaming"] .studio-tab.active {
+  color: var(--brand);
+  border-bottom-color: var(--brand);
+}
+
+[data-theme="gaming"] .drop-zone {
+  border-color: var(--border-strong);
+  background: var(--bg-soft);
+}
+[data-theme="gaming"] .drop-zone:hover,
+[data-theme="gaming"] .drop-zone.dragover {
+  border-color: var(--brand);
+  background: var(--bg-muted);
+}
+
+[data-theme="gaming"] .file-info {
+  background: var(--bg-muted);
+  border-color: var(--border);
+  color: var(--text-soft);
+}
+[data-theme="gaming"] .progress-bar {
+  background: var(--border-strong);
+}
+[data-theme="gaming"] .progress-fill {
+  background: var(--accent);
+}
+
+[data-theme="gaming"] .preview-box {
+  background: var(--bg-muted);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+
+/* Video Rows in Studio */
+[data-theme="gaming"] .video-row {
+  background: var(--bg-soft);
+  border-color: var(--border);
+}
+[data-theme="gaming"] .video-row:hover {
+  border-color: var(--border-strong);
+}
+[data-theme="gaming"] .video-row .title { color: var(--text); }
+[data-theme="gaming"] .video-row .sub   { color: var(--text-soft); }
+[data-theme="gaming"] .thumb-cell { background: var(--bg-muted); }
+
+[data-theme="gaming"] .btn-sm {
+  background: var(--bg-muted);
+  border-color: var(--border-strong);
+  color: var(--text-soft);
+}
+[data-theme="gaming"] .btn-sm:hover {
+  border-color: var(--brand);
+  color: var(--text);
+}
+[data-theme="gaming"] .btn-sm.danger {
+  border-color: #7f1d1d;
+  color: #f87171;
+}
+[data-theme="gaming"] .btn-sm.danger:hover {
+  background: rgba(248,113,113,0.1);
+}
+
+/* ============================================================
+   9. Admin Dashboard & Tables
+   ============================================================ */
+[data-theme="gaming"] .stat-card {
+  background: var(--bg-soft);
+  border-color: var(--border);
+}
+[data-theme="gaming"] .stat-label { color: var(--text-dim); }
+[data-theme="gaming"] .stat-value { color: var(--text); }
+
+[data-theme="gaming"] .table-wrap {
+  background: var(--bg-soft);
+  border-color: var(--border);
+}
+[data-theme="gaming"] .admin-table th {
+  background: var(--bg-muted);
+  color: var(--text-dim);
+}
+[data-theme="gaming"] .admin-table td {
+  border-color: var(--border);
+  color: var(--text-soft);
+}
+[data-theme="gaming"] .admin-table .thumb {
+  background: var(--bg-muted);
+}
+
+/* Status Badges */
+[data-theme="gaming"] .status.active { background: rgba(22, 101, 52, 0.3); color: #4ade80; border: 1px solid rgba(74,222,128,0.2); }
+[data-theme="gaming"] .status.flagged { background: rgba(133, 77, 14, 0.3); color: #facc15; border: 1px solid rgba(250,204,21,0.2); }
+[data-theme="gaming"] .status.pending { background: var(--bg-muted); color: var(--text-soft); border: 1px solid var(--border); }
+[data-theme="gaming"] .status.banned { background: rgba(153, 27, 27, 0.3); color: #f87171; border: 1px solid rgba(248,113,113,0.2); }
+
+/* ============================================================
+   10. Utilities & Scrollbars
+   ============================================================ */
+[data-theme="gaming"] ::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+[data-theme="gaming"] ::-webkit-scrollbar-track {
+  background: var(--bg);
+}
+[data-theme="gaming"] ::-webkit-scrollbar-thumb {
+  background: var(--bg-muted);
+  border-radius: 5px;
+  border: 2px solid var(--bg);
+}
+[data-theme="gaming"] ::-webkit-scrollbar-thumb:hover {
+  background: var(--border-strong);
+}
+
+[data-theme="gaming"] .skeleton {
+  background: linear-gradient(90deg, var(--bg-soft) 25%, var(--bg-muted) 50%, var(--bg-soft) 75%);
+  background-size: 200% 100%;
+}
+
+[data-theme="gaming"] .empty-state i { color: var(--bg-muted); }
+[data-theme="gaming"] .empty-state h2 { color: var(--text); }
+[data-theme="gaming"] .empty-state p { color: var(--text-soft); }

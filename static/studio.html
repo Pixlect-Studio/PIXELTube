@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PIXELTube · Studio</title>
+  <link rel="icon" href="favicon.ico" sizes="any">
+
+  <!-- Prevent flash: apply saved theme before anything paints -->
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem('pixeltube:theme');
+        if (t) {
+          document.documentElement.setAttribute('data-theme', t);
+          var link = document.createElement('link');
+          link.rel = 'stylesheet';
+          link.href = 'theme/' + t + '/style.css';
+          link.setAttribute('data-pixeltube-theme', t);
+          document.head.appendChild(link);
+        }
+      } catch (e) {}
+    })();
+  </script>
+
+  <!-- Font Awesome (stable 6.7.2 to fix glyph warnings) -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">
+  
+  <!-- Base Styles -->
+  <link rel="stylesheet" href="styles.css?v=auth-iframe-2">
+  <script src="adsense.js" async></script>
+</head>
+<body>
+
+  <!-- TOP NAV -->
+  <header class="header">
+    <div class="header-left">
+      <a href="index.html" class="brand">
+        <img class="brand-icon" src="favicon.ico" alt="">
+        <span class="brand-red">PIXEL</span><span class="brand-black">Tube</span>
+      </a>
+      <span class="badge">STUDIO</span>
+    </div>
+
+    <div class="header-right">
+      <a href="index.html" class="btn btn-outline">
+        <i class="fas fa-home"></i> Back to PIXELTube
+      </a>
+      <a href="admin.html" class="btn btn-outline">
+        <i class="fas fa-shield-alt"></i> Admin
+      </a>
+      <a href="settings.html?returnTo=studio.html" class="btn btn-outline">
+        <i class="fas fa-cog"></i> Settings
+      </a>
+      <div id="pixlect-user"></div>
+      <button id="pixlect-login" class="pixlect-btn">Sign in with PIXLECT</button>
+    </div>
+  </header>
+
+  <!-- MAIN -->
+  <main class="main" style="max-width: 1000px; margin: 0 auto; padding-top: 32px;">
+    <section id="studioAccessGate" class="studio-access-card" aria-labelledby="studioAccessTitle">
+      <div class="studio-access-icon"><i class="fas fa-video"></i></div>
+      <h1 id="studioAccessTitle">Sign In Or Create Your PIXELChannel</h1>
+      <p id="studioAccessMessage" class="settings-intro">Sign in with PIXLECT and create a channel to start creating on PIXELTube.</p>
+      <p id="studioAuthStatus" class="settings-message" role="status" aria-live="polite"></p>
+      <div class="settings-actions">
+        <button id="studioSignIn" type="button" class="btn btn-red">Sign in with PIXLECT</button>
+        <a id="studioCreateChannel" href="settings.html?returnTo=studio.html" class="btn btn-outline">Create your PIXELChannel</a>
+      </div>
+    </section>
+    <div id="studioWorkspace" class="hidden">
+    <!-- Tabs -->
+    <div class="tab-bar">
+      <button class="studio-tab active" data-tab="upload" id="uploadTabLabel">Upload Video</button>
+      <button class="studio-tab" data-tab="videos">My Videos</button>
+      <button class="studio-tab" data-tab="analytics">Analytics</button>
+    </div>
+
+    <!-- ============ UPLOAD TAB ============ -->
+    <section id="tab-upload" class="tab-content">
+      <h1 id="uploadHeading" style="font-size: 24px; font-weight: 700; margin-bottom: 24px;">Upload a new video</h1>
+
+      <form id="uploadForm">
+        <div class="grid gap-6" style="grid-template-columns: 1fr; align-items: start;">
+          
+          <!-- Left Column: Drop Zone & Form -->
+          <div class="flex flex-col gap-4">
+            <div id="dropZone" class="drop-zone">
+              <i class="fas fa-cloud-upload-alt"></i>
+              <p style="font-size: 18px; font-weight: 600; margin-bottom: 4px; color: var(--text);">Drag & drop your video</p>
+              <p style="font-size: 14px; color: var(--text-soft); margin-bottom: 16px;">or click to browse</p>
+              <button type="button" id="pickFileBtn" class="btn btn-red">Select File</button>
+              <input type="file" id="fileInput" class="hidden" accept="video/*">
+            </div>
+
+            <!-- Selected File Info & Progress -->
+            <div id="fileInfo" class="file-info hidden">
+              <div class="file-row">
+                <div class="name-wrap">
+                  <i class="fas fa-file-video text-red"></i>
+                  <span id="fileName" class="name">video.mp4</span>
+                  <span id="fileSize" class="size"></span>
+                </div>
+                <button type="button" id="clearFileBtn" class="clear-btn">
+                  <i class="fas fa-times"></i>
+                </button>
+              </div>
+              <!-- Progress Bar -->
+              <div id="progressWrap" class="progress-wrap hidden">
+                <div class="progress-bar"><div id="progressFill" class="progress-fill"></div></div>
+                <p id="progressText" class="progress-text">Uploading… 0%</p>
+              </div>
+            </div>
+
+            <!-- Metadata -->
+            <div class="form-group" style="margin-top: 16px;">
+              <label class="form-label">Title <span class="req">*</span></label>
+              <input id="titleInput" type="text" required placeholder="Enter video title..." class="input">
+            </div>
+            <p class="demo-disclaimer">Publishing to your channel requires a channel name. <a href="settings.html?returnTo=studio.html" style="color: var(--brand); text-decoration: underline;">Manage channel in Settings</a></p>
+
+            <div class="form-group">
+              <label class="form-label">Description</label>
+              <textarea id="descInput" rows="4" placeholder="Describe your video..." class="textarea"></textarea>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="videoFormatInput">Video format</label>
+              <select id="videoFormatInput" class="select">
+                <option value="auto">Auto-detect</option>
+                <option value="long">Long video</option>
+                <option value="mini">Mini</option>
+              </select>
+              <p id="videoFormatHint" class="demo-disclaimer" aria-live="polite">Auto-detect selects Mini for portrait videos up to 3 minutes; all other videos are Long.</p>
+            </div>
+
+            <div class="grid gap-4" style="grid-template-columns: 1fr 1fr;">
+              <div class="form-group">
+                <label class="form-label">Category</label>
+                <select id="categoryInput" class="select">
+                  <option>Gaming</option>
+                  <option>Coding</option>
+                  <option>Music</option>
+                  <option>Tech</option>
+                  <option>Education</option>
+                  <option>General</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Visibility</label>
+                <select id="visibilityInput" class="select">
+                  <option>Public</option>
+                  <option>Unlisted</option>
+                  <option>Private</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <!-- Right Column: Preview & Action -->
+          <div class="flex flex-col gap-4">
+            <div class="stat-card" style="padding: 16px;">
+              <p style="font-size: 14px; font-weight: 500; margin-bottom: 8px; color: var(--text);">Preview</p>
+              <div id="thumbPreview" class="preview-box">
+                <div>
+                  <i class="fas fa-image"></i>
+                  <p style="font-size: 12px;">No file selected</p>
+                </div>
+              </div>
+              <p style="font-size: 12px; color: var(--text-dim); margin-top: 8px;">A random frame will be used as the thumbnail</p>
+            </div>
+
+            <div class="stat-card" style="padding: 16px;">
+              <p style="font-size: 14px; font-weight: 500; margin-bottom: 8px; color: var(--text);">Tips</p>
+              <ul class="tips-list">
+                <li><i class="fas fa-check"></i> Use a clear, descriptive title</li>
+                <li><i class="fas fa-check"></i> Add tags for better discovery</li>
+                <li><i class="fas fa-check"></i> Upload a custom thumbnail</li>
+              </ul>
+            </div>
+
+            <button type="submit" id="publishBtn" class="btn btn-red" style="width: 100%; padding: 12px; font-size: 14px;">
+              Publish Video
+            </button>
+            <p id="uploadMessage" class="alert hidden" role="status" aria-live="polite"></p>
+          </div>
+        </div>
+      </form>
+    </section>
+
+    <!-- ============ MY VIDEOS TAB ============ -->
+    <section id="tab-videos" class="tab-content hidden">
+      <div class="flex justify-between items-center" style="margin-bottom: 24px;">
+        <h1 style="font-size: 24px; font-weight: 700;">My Videos</h1>
+        <button id="refreshVideosBtn" class="btn btn-outline" style="font-size: 14px;">
+          <i class="fas fa-sync-alt"></i> Refresh
+        </button>
+      </div>
+
+      <div id="videosList" class="flex flex-col gap-3">
+        <!-- Skeletons -->
+        <div class="video-row skeleton h-40" style="height: 96px;"></div>
+      </div>
+
+      <div id="videosEmpty" class="empty-state hidden">
+        <i class="fas fa-video-slash"></i>
+        <h2>No videos yet</h2>
+        <p>Upload your first video to see it here</p>
+        <button onclick="switchTab('upload')" class="btn btn-red">
+          <i class="fas fa-upload"></i> Upload Video
+        </button>
+      </div>
+    </section>
+
+    <!-- ============ ANALYTICS TAB ============ -->
+    <section id="tab-analytics" class="tab-content hidden">
+      <h1 style="font-size: 24px; font-weight: 700; margin-bottom: 24px;">Analytics</h1>
+
+      <div class="stats-grid three">
+        <div class="stat-card">
+          <p class="stat-label">Total Videos</p>
+          <p id="statVideos" class="stat-value">—</p>
+        </div>
+        <div class="stat-card">
+          <p class="stat-label">Total Views</p>
+          <p id="statViews" class="stat-value">—</p>
+        </div>
+        <div class="stat-card">
+          <p class="stat-label">Subscribers</p>
+          <p class="stat-value">Coming Soon...</p>
+        </div>
+      </div>
+    </section>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <a href="privacy.html">Privacy Policy</a>
+    <a href="community-guidelines.html">Community Guidelines</a>
+    <a href="terms.html">Terms of Service</a>
+  </footer>
+
+  <!-- SCRIPTS -->
+  <script src="theme-init.js" defer></script>
+  <script src="js/pixlect-crypto.js" defer></script>
+  <script src="js/login.js?v=auth-iframe-3" defer></script>
+  <script src="community.js"></script>
+  <script src="storage.js"></script>
+  <script src="settings.js"></script>
+  <script src="video-thumbnails.js"></script>
+  <script src="video-playback.js"></script>
+  <script>
+    // ================= TAB SWITCHING =================
+    const tabs = document.querySelectorAll('.studio-tab');
+    const contents = document.querySelectorAll('.tab-content');
+    const studioAccessGate = document.getElementById('studioAccessGate');
+    const studioWorkspace = document.getElementById('studioWorkspace');
+    const studioAccessMessage = document.getElementById('studioAccessMessage');
+    const studioAuthStatus = document.getElementById('studioAuthStatus');
+    const studioSignIn = document.getElementById('studioSignIn');
+    const studioCreateChannel = document.getElementById('studioCreateChannel');
+    let authWaitTimer = null;
+    const studioParams = new URLSearchParams(location.search);
+    const requestedType = studioParams.get('type');
+    const videoFormatInput = document.getElementById('videoFormatInput');
+    const videoFormatHint = document.getElementById('videoFormatHint');
+    if (requestedType === 'mini' || requestedType === 'short') {
+      videoFormatInput.value = 'mini';
+      studioCreateChannel.href = `settings.html?returnTo=${encodeURIComponent('studio.html?type=mini')}`;
+    }
+    videoFormatInput.addEventListener('change', () => updateVideoFormatHint(selectedVideoMetadata));
+
+    function updateStudioAccess(user) {
+      const signedIn = Boolean(user);
+      const hasChannel = Boolean(PIXELTubeSettings.get().channel);
+      const canCreate = signedIn && hasChannel;
+      studioAccessGate.classList.toggle('hidden', canCreate);
+      studioWorkspace.classList.toggle('hidden', !canCreate);
+      studioSignIn.classList.toggle('hidden', signedIn);
+      studioCreateChannel.classList.toggle('hidden', hasChannel);
+      if (signedIn) {
+        clearTimeout(authWaitTimer);
+        studioAuthStatus.textContent = `Signed in with PIXLECT${user.username ? ` as ${user.username}` : ''}.`;
+      }
+      if (!signedIn && !hasChannel) {
+        studioAccessMessage.textContent = 'Sign in with PIXLECT and create your PIXELChannel before you upload a video or Mini.';
+      } else if (!signedIn) {
+        studioAccessMessage.textContent = 'Sign in with PIXLECT to create videos and Minis on your channel.';
+      } else if (!hasChannel) {
+        studioAccessMessage.textContent = 'You’re signed in. Create your PIXELChannel to start uploading videos and Minis.';
+      }
+    }
+
+    function beginStudioSignIn() {
+      studioAuthStatus.textContent = 'Opening PIXLECT sign-in…';
+      clearTimeout(authWaitTimer);
+      authWaitTimer = setTimeout(() => {
+        if (!window.PIXELTubeAuth?.user) {
+          studioAuthStatus.textContent = 'Still waiting for PIXLECT. Finish signing in and approve PIXELTube in the sign-in panel. If PIXLECT reports success but Studio does not update, the confirmation did not reach PIXELTube.';
+        }
+      }, 12000);
+    }
+
+    studioSignIn.addEventListener('click', () => {
+      beginStudioSignIn();
+      window.PIXELTubeAuth?.login();
+    });
+    document.getElementById('pixlect-login')?.addEventListener('click', beginStudioSignIn);
+    document.addEventListener('DOMContentLoaded', () => {
+      window.PIXELTubeAuth?.onChange(updateStudioAccess);
+      window.PIXELTubeAuth?.ready().then(updateStudioAccess);
+      window.addEventListener('pixeltube:authpopupclosed', () => {
+        clearTimeout(authWaitTimer);
+        if (!window.PIXELTubeAuth?.user) {
+          studioAuthStatus.textContent = 'PIXLECT sign-in was closed before PIXELTube received confirmation. Please try again.';
+        }
+      });
+      window.addEventListener('pixeltube:autherror', event => {
+        clearTimeout(authWaitTimer);
+        studioAuthStatus.textContent = event.detail?.message || 'Sign-in could not be completed. Please try again.';
+      });
+      window.addEventListener('pixeltube:profilesettingschange', () => updateStudioAccess(window.PIXELTubeAuth?.user));
+    });
+
+    function switchTab(name) {
+      tabs.forEach(t => {
+        t.classList.remove('active');
+      });
+      const activeTab = [...tabs].find(t => t.dataset.tab === name);
+      if (activeTab) activeTab.classList.add('active');
+
+      contents.forEach(c => c.classList.add('hidden'));
+      const activeContent = document.getElementById('tab-' + name);
+      if (activeContent) activeContent.classList.remove('hidden');
+
+      if (name === 'videos') loadMyVideos();
+      if (name === 'analytics') loadAnalytics();
+    }
+    window.switchTab = switchTab;
+
+    tabs.forEach(tab => tab.addEventListener('click', () => switchTab(tab.dataset.tab)));
+
+    // ================= HELPERS =================
+    function escapeHtml(s) {
+      return String(s ?? '').replace(/[&<>"']/g, c => ({
+        '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+      }[c]));
+    }
+    function formatBytes(bytes) {
+      if (!bytes) return '0 B';
+      const k = 1024, sizes = ['B', 'KB', 'MB', 'GB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
+    }
+    function formatDate(iso) {
+      if (!iso) return 'Just now';
+      const d = new Date(iso);
+      const diff = (Date.now() - d.getTime()) / 1000;
+      if (diff < 60) return 'Just now';
+      if (diff < 3600) return `${Math.floor(diff/60)} min ago`;
+      if (diff < 86400) return `${Math.floor(diff/3600)} hours ago`;
+      if (diff < 604800) return `${Math.floor(diff/86400)} days ago`;
+      return d.toLocaleDateString();
+    }
+
+    // ================= UPLOAD TAB =================
+    const dropZone = document.getElementById('dropZone');
+    const fileInput = document.getElementById('fileInput');
+    const pickFileBtn = document.getElementById('pickFileBtn');
+    const fileInfo = document.getElementById('fileInfo');
+    const fileName = document.getElementById('fileName');
+    const fileSize = document.getElementById('fileSize');
+    const clearFileBtn = document.getElementById('clearFileBtn');
+    const thumbPreview = document.getElementById('thumbPreview');
+    const uploadForm = document.getElementById('uploadForm');
+    const publishBtn = document.getElementById('publishBtn');
+    const uploadMessage = document.getElementById('uploadMessage');
+    const progressWrap = document.getElementById('progressWrap');
+    const progressFill = document.getElementById('progressFill');
+    const progressText = document.getElementById('progressText');
+
+    let selectedFile = null;
+    let previewUrl = null;
+    let selectedVideoMetadata = null;
+    let selectedVideoMetadataPromise = null;
+    updateVideoFormatHint(null);
+
+    pickFileBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      fileInput.click();
+    });
+    dropZone.addEventListener('click', () => fileInput.click());
+
+    dropZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropZone.classList.add('dragover');
+    });
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('dragover');
+      if (e.dataTransfer.files.length) {
+        handleFile(e.dataTransfer.files[0]);
+      }
+    });
+
+    fileInput.addEventListener('change', () => {
+      if (fileInput.files.length) handleFile(fileInput.files[0]);
+    });
+
+    function handleFile(file) {
+      if (!file.type.startsWith('video/')) {
+        showMessage('Please select a video file.', 'red');
+        return;
+      }
+      selectedFile = file;
+      selectedVideoMetadata = null;
+
+      // show info
+      fileName.textContent = file.name;
+      fileSize.textContent = `(${formatBytes(file.size)})`;
+      fileInfo.classList.remove('hidden');
+
+      // build preview
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      previewUrl = URL.createObjectURL(file);
+      thumbPreview.innerHTML = `<video src="${previewUrl}" preload="metadata" muted playsinline></video>`;
+      PIXELTubeThumbnails.loadRandomFrame(thumbPreview.querySelector('video'));
+      videoFormatHint.textContent = 'Checking video duration and orientation…';
+      selectedVideoMetadataPromise = readVideoMetadata(file);
+      selectedVideoMetadataPromise.then(metadata => {
+        if (selectedFile !== file) return;
+        selectedVideoMetadata = metadata;
+        updateVideoFormatHint(metadata);
+      }).catch(() => {
+        if (selectedFile === file && videoFormatInput.value === 'auto') {
+          videoFormatHint.textContent = 'Could not auto-detect this video. Choose Long video or Mini to continue.';
+        }
+      });
+
+      // auto-fill title if empty
+      const titleInput = document.getElementById('titleInput');
+      if (!titleInput.value) {
+        titleInput.value = file.name.replace(/\.[^.]+$/, '');
+      }
+    }
+
+    function readVideoMetadata(file) {
+      return new Promise((resolve, reject) => {
+        const media = document.createElement('video');
+        const objectUrl = URL.createObjectURL(file);
+        const cleanup = () => {
+          media.removeAttribute('src');
+          media.load();
+          URL.revokeObjectURL(objectUrl);
+        };
+        media.preload = 'metadata';
+        media.onloadedmetadata = () => {
+          const metadata = {
+            duration: media.duration,
+            width: media.videoWidth,
+            height: media.videoHeight,
+          };
+          cleanup();
+          if (!Number.isFinite(metadata.duration) || !metadata.width || !metadata.height) {
+            reject(new Error('Video metadata is incomplete.'));
+            return;
+          }
+          resolve(metadata);
+        };
+        media.onerror = () => {
+          cleanup();
+          reject(new Error('Video metadata could not be read.'));
+        };
+        media.src = objectUrl;
+      });
+    }
+
+    function detectedVideoType(metadata) {
+      return metadata.height > metadata.width && metadata.duration <= 180 ? 'mini' : 'long';
+    }
+
+    function updateVideoFormatHint(metadata) {
+      const selectedFormat = videoFormatInput.value;
+      const resolvedType = selectedFormat === 'auto'
+        ? (metadata ? detectedVideoType(metadata) : 'long')
+        : selectedFormat;
+      document.getElementById('uploadTabLabel').textContent = resolvedType === 'mini' ? 'Upload Mini' : 'Upload Long Video';
+      document.getElementById('uploadHeading').textContent = resolvedType === 'mini' ? 'Upload a PIXELTube Mini' : 'Upload a long video';
+      publishBtn.textContent = resolvedType === 'mini' ? 'Publish Mini' : 'Publish Long Video';
+      if (selectedFormat === 'mini') {
+        videoFormatHint.textContent = 'This upload will be published as a Mini.';
+      } else if (selectedFormat === 'long') {
+        videoFormatHint.textContent = 'This upload will be published as a Long video.';
+      } else if (!metadata) {
+        videoFormatHint.textContent = 'Choose Auto-detect or select a format manually.';
+      } else {
+        const type = detectedVideoType(metadata);
+        videoFormatHint.textContent = `Detected as ${type === 'mini' ? 'Mini' : 'Long video'} (${metadata.width}×${metadata.height}, ${Math.round(metadata.duration)} sec).`;
+      }
+    }
+
+    clearFileBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      resetUpload();
+    });
+
+    function resetUpload() {
+      selectedFile = null;
+      selectedVideoMetadata = null;
+      selectedVideoMetadataPromise = null;
+      fileInput.value = '';
+      fileInfo.classList.add('hidden');
+      progressWrap.classList.add('hidden');
+      progressFill.style.width = '0%';
+      progressText.textContent = 'Uploading… 0%';
+      if (previewUrl) { URL.revokeObjectURL(previewUrl); previewUrl = null; }
+      thumbPreview.innerHTML = `
+        <div>
+          <i class="fas fa-image"></i>
+          <p style="font-size: 12px;">No file selected</p>
+        </div>`;
+      updateVideoFormatHint(null);
+    }
+
+    function showMessage(text, color = 'green') {
+      uploadMessage.textContent = text;
+      uploadMessage.className = `alert ${color}`;
+      uploadMessage.classList.remove('hidden');
+      setTimeout(() => uploadMessage.classList.add('hidden'), 5000);
+    }
+
+    // ================= UPLOAD EXECUTION =================
+    uploadForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      if (!selectedFile) {
+        showMessage('Please select a video file first.', 'red');
+        return;
+      }
+      let videoType = videoFormatInput.value;
+      if (videoType === 'auto') {
+        try {
+          const metadata = selectedVideoMetadata || await selectedVideoMetadataPromise;
+          videoType = detectedVideoType(metadata);
+        } catch (error) {
+          showMessage('Could not auto-detect the video format. Select Long video or Mini manually.', 'red');
+          return;
+        }
+      }
+      const title = document.getElementById('titleInput').value.trim();
+      if (!title) {
+        showMessage('Please enter a title.', 'red');
+        return;
+      }
+      const profile = PIXELTubeSettings.get();
+      if (!profile.channel) {
+        showMessage('Set a channel name in Settings before publishing. ', 'red');
+        const settingsLink = document.createElement('a');
+        settingsLink.href = 'settings.html?returnTo=studio.html';
+        settingsLink.textContent = 'Open Settings';
+        settingsLink.className = 'btn btn-outline';
+        uploadMessage.appendChild(document.createElement('br'));
+        uploadMessage.appendChild(settingsLink);
+        return;
+      }
+
+      const category = document.getElementById('categoryInput').value;
+      const visibility = document.getElementById('visibilityInput').value;
+
+      publishBtn.disabled = true;
+      publishBtn.textContent = 'Uploading…';
+      progressWrap.classList.remove('hidden');
+      progressFill.style.width = '0%';
+      progressText.textContent = 'Uploading… 0%';
+      try {
+        const uploadedVideo = await PIXELTubeAPI.uploadVideo(selectedFile, {
+          title,
+          description: document.getElementById('descInput').value.trim(),
+          category,
+          visibility,
+          channel: profile.channel,
+          creator_name: profile.name,
+          video_type: videoType,
+        }, percent => {
+          progressFill.style.width = `${percent}%`;
+          progressText.textContent = `Uploading… ${percent}%`;
+        });
+        progressFill.style.width = '100%';
+        progressText.textContent = '✅ Upload complete';
+        showMessage('✅ Your video is live! Opening it now…');
+        setTimeout(() => {
+          window.location.href = `video_player.html?id=${encodeURIComponent(uploadedVideo.id)}`;
+        }, 1200);
+      } catch (err) {
+        progressText.textContent = '❌ Upload failed';
+        showMessage(`Upload failed: ${err.message}`, 'red');
+      } finally {
+        publishBtn.disabled = false;
+        publishBtn.textContent = videoType === 'mini' ? 'Publish Mini' : 'Publish Video';
+      }
+    });
+
+    // ================= MY VIDEOS TAB =================
+    const videosList = document.getElementById('videosList');
+    const videosEmpty = document.getElementById('videosEmpty');
+    const refreshVideosBtn = document.getElementById('refreshVideosBtn');
+
+    async function loadMyVideos() {
+      videosList.innerHTML = `<div class="video-row skeleton" style="height: 96px;"></div>`;
+      videosEmpty.classList.add('hidden');
+
+      try {
+        const videos = await PIXELTubeAPI.listVideos();
+
+        if (!videos.length) {
+          videosList.innerHTML = '';
+          videosEmpty.classList.remove('hidden');
+          return;
+        }
+
+        videosList.innerHTML = '';
+        videos.forEach(v => videosList.appendChild(renderVideoRow(v)));
+
+      } catch (err) {
+        videosList.innerHTML = `
+          <div style="text-align: center; padding: 48px 0;">
+            <i class="fas fa-exclamation-triangle" style="font-size: 32px; color: #eab308; margin-bottom: 8px;"></i>
+            <p style="font-size: 14px; color: var(--text-soft);">Could not load videos.</p>
+            <p style="font-size: 12px; color: var(--text-dim); margin-top: 4px;">${escapeHtml(err.message)}</p>
+          </div>`;
+      }
+    }
+
+    function renderVideoRow(video) {
+      const row = document.createElement('div');
+      row.className = 'video-row';
+
+      const thumbInner = video.url
+        ? `<video src="${video.url}" preload="metadata" muted></video>`
+        : `<div class="placeholder"><i class="fas fa-video"></i></div>`;
+
+      row.innerHTML = `
+        <div class="thumb-cell">${thumbInner}</div>
+        <div class="info">
+          <h3 class="title">${escapeHtml(video.title || 'Untitled')}</h3>
+          <p class="sub">
+            ${escapeHtml(video.category || 'General')}
+            <span style="margin: 0 4px;">·</span> ${Number(video.views) || 0} views
+            ${video.video_type === 'mini' || video.video_type === 'short' ? '<span style="margin: 0 4px;">·</span> Mini' : ''}
+            <span style="margin: 0 4px;">·</span> ${formatDate(video.created_at)}
+            <span style="margin: 0 4px;">·</span> ${escapeHtml(video.visibility || 'Public')}
+          </p>
+        </div>
+        <div class="actions">
+          <button class="btn-sm play-btn">
+            <i class="fas fa-play"></i> Play
+          </button>
+          <button class="btn-sm danger delete-btn">
+            <i class="fas fa-trash"></i> Delete
+          </button>
+        </div>
+      `;
+      if (video.channel) {
+        const channel = document.createElement('p');
+        channel.className = 'sub';
+        channel.textContent = `Channel: ${video.channel}`;
+        row.querySelector('.info').appendChild(channel);
+      }
+      const thumbnail = row.querySelector('.thumb-cell video');
+      if (thumbnail) PIXELTubeThumbnails.loadRandomFrame(thumbnail);
+
+      row.querySelector('.play-btn').addEventListener('click', () => {
+        if (!video.url) return;
+        window.location.href = `video_player.html?id=${encodeURIComponent(video.id)}`;
+      });
+
+      row.querySelector('.delete-btn').addEventListener('click', async () => {
+        if (!confirm(`Delete "${video.title}"? This cannot be undone.`)) return;
+        try {
+          await PIXELTubeAPI.deleteVideo(video.id);
+          row.remove();
+          if (!videosList.children.length) videosEmpty.classList.remove('hidden');
+        } catch (err) {
+          alert('Delete failed: ' + err.message);
+        }
+      });
+
+      return row;
+    }
+
+    refreshVideosBtn.addEventListener('click', loadMyVideos);
+
+    // ================= ANALYTICS TAB =================
+    async function loadAnalytics() {
+      try {
+        const videos = await PIXELTubeAPI.listVideos();
+        document.getElementById('statVideos').textContent = videos.length;
+        document.getElementById('statViews').textContent =
+          videos.reduce((total, video) => total + (Number(video.views) || 0), 0).toLocaleString();
+      } catch (err) {
+        document.getElementById('statVideos').textContent = '—';
+        document.getElementById('statViews').textContent = '—';
+      }
+    }
+
+    // ================= INIT =================
+    document.addEventListener('DOMContentLoaded', () => {
+      const hash = location.hash.replace('#', '');
+      if (hash && ['upload', 'videos', 'analytics'].includes(hash)) {
+        switchTab(hash);
+      }
+    });
+  </script>
+</body>
+</html>

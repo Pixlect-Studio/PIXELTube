@@ -1,0 +1,13 @@
+[data-theme="white"] {
+  --bg: #ffffff;
+  --bg-soft: #f9f9f9;
+  --bg-muted: #f2f2f2;
+  --text: #0f0f0f;
+  --text-soft: #4b5563;
+  --text-dim: #6b7280;
+  --border: #e5e5e5;
+  --border-strong: #d1d5db;
+  --brand: #0c1062;
+  --brand-hover: #080c4d;
+  --accent: #0c1062;
+}

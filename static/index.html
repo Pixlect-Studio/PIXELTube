@@ -1,0 +1,670 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PIXELTube · Home</title>
+  <link rel="icon" href="favicon.ico" sizes="any">
+  <script src="settings.js" defer></script>
+
+  <!-- Prevent flash: apply saved theme before anything paints -->
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem('pixeltube:theme');
+        if (t) {
+          document.documentElement.setAttribute('data-theme', t);
+          var link = document.createElement('link');
+          link.rel = 'stylesheet';
+          link.href = 'theme/' + t + '/style.css';
+          link.setAttribute('data-pixeltube-theme', t);
+          document.head.appendChild(link);
+        }
+      } catch (e) {}
+    })();
+  </script>
+
+  <!-- Font Awesome (stable 6.7.2 to fix glyph warnings) -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">
+  
+  <!-- Base Styles -->
+  <link rel="stylesheet" href="styles.css?v=auth-iframe-2">
+  <script src="adsense.js" async></script>
+</head>
+<body>
+
+  <!-- TOP NAV -->
+  <header class="header">
+    <div class="header-left">
+      <button id="sidebarToggle" class="icon-btn" aria-label="Toggle sidebar">
+        <i class="fas fa-bars"></i>
+      </button>
+      <a href="index.html" class="brand">
+        <img class="brand-icon" src="favicon.ico" alt="">
+        <span class="brand-red">PIXEL</span><span class="brand-black">Tube</span>
+      </a>
+    </div>
+
+    <div class="search-wrap">
+      <div class="search-box">
+        <input id="videoSearch" type="search" placeholder="Search videos" aria-label="Search videos">
+        <button id="searchButton" type="button" aria-label="Search"><i class="fas fa-search"></i></button>
+      </div>
+      <button id="voiceSearchButton" class="mic-btn" type="button" aria-label="Voice search"><i class="fas fa-microphone"></i></button>
+    </div>
+
+    <div class="header-right">
+      <div class="create-menu">
+        <button id="createMenuToggle" class="btn btn-ghost" type="button" aria-expanded="false" aria-controls="createMenu">
+          <i class="fas fa-plus"></i><span>Create</span>
+        </button>
+        <div id="createMenu" class="create-menu-panel hidden">
+          <a href="studio.html"><i class="fas fa-video"></i><span><strong>Upload video</strong><small>Share a regular video</small></span></a>
+          <a href="studio.html?type=mini"><i class="fas fa-bolt"></i><span><strong>Create Mini</strong><small>Upload a short-form video</small></span></a>
+        </div>
+      </div>
+      <button id="notificationsButton" class="icon-btn" type="button" aria-label="Notifications" title="Coming Soon...">
+        <i class="fas fa-bell"></i>
+        <span id="notificationBadge" class="notif-dot hidden"></span>
+      </button>
+      <div id="pixlect-user"></div>
+      <button id="pixlect-login" class="pixlect-btn">Sign in with PIXLECT</button>
+      <a href="admin.html" class="btn btn-outline">Admin</a>
+    </div>
+  </header>
+
+  <!-- LAYOUT -->
+  <div class="layout">
+    <!-- SIDEBAR -->
+    <aside id="sidebar" class="sidebar">
+      <nav>
+        <a href="index.html" class="nav-item">
+          <i class="fas fa-home"></i><span class="nav-label">Home</span>
+        </a>
+        <button type="button" class="nav-item" data-feed="minis" title="Browse PIXELTube Minis">
+          <i class="fas fa-bolt"></i><span class="nav-label">Minis</span>
+        </button>
+        <button type="button" class="nav-item" data-feed="subscriptions" title="Locally saved subscriptions">
+          <i class="fas fa-users"></i><span class="nav-label">Subscriptions</span>
+        </button>
+        <hr class="nav-divider">
+        <button type="button" class="nav-item" disabled title="Library requires a signed-in account">
+          <i class="fas fa-bookmark"></i><span class="nav-label">Library</span>
+        </button>
+        <button type="button" class="nav-item" data-feed="history" title="Your local viewing history">
+          <i class="fas fa-history"></i><span class="nav-label">History</span>
+        </button>
+        <a href="studio.html" class="nav-item">
+          <i class="fas fa-video"></i><span class="nav-label">Your Videos</span>
+        </a>
+        <button type="button" class="nav-item" data-feed="liked" title="Videos you liked in this browser">
+          <i class="fas fa-thumbs-up"></i><span class="nav-label">Liked Videos</span>
+        </button>
+        <hr class="nav-divider">
+        <a href="settings.html" class="nav-item" title="Customize your theme, name, and channel">
+          <i class="fas fa-cog"></i><span class="nav-label">Settings</span>
+        </a>
+      </nav>
+    </aside>
+
+    <!-- MAIN -->
+    <main class="main">
+      <!-- Category Filter Chips -->
+      <div class="chips">
+        <button class="chip active" data-category="all">All</button>
+        <button class="chip" data-category="Gaming">Gaming</button>
+        <button class="chip" data-category="Coding">Coding</button>
+        <button class="chip" data-category="Music">Music</button>
+        <button class="chip" data-category="Tech">Tech</button>
+        <button class="chip" data-category="Live">Live</button>
+        <button class="chip" data-category="Podcasts">Podcasts</button>
+        <button class="chip" data-category="News">News</button>
+      </div>
+
+      <section class="pro-promo" aria-labelledby="proPromoTitle">
+        <div class="pro-promo-icon" aria-hidden="true"><i class="fas fa-star"></i></div>
+        <div class="pro-promo-copy">
+          <p class="pro-promo-eyebrow">PIXELTube Pro <span>COMING SOON</span></p>
+          <h2 id="proPromoTitle">Something extra is on the way</h2>
+          <p>We’re working on a new PIXELTube experience. Check back soon for updates.</p>
+        </div>
+        <span class="pro-promo-status" aria-label="PIXELTube Pro coming soon">Coming soon</span>
+      </section>
+
+      <!-- Video Grid -->
+      <div id="videoGrid" class="video-grid">
+        <!-- Skeletons while loading -->
+        <div class="skeleton h-40"></div>
+        <div class="skeleton h-40"></div>
+        <div class="skeleton h-40"></div>
+        <div class="skeleton h-40"></div>
+      </div>
+
+      <!-- Empty State -->
+      <div id="emptyState" class="empty-state hidden">
+        <i class="fas fa-video-slash"></i>
+        <h2>No videos yet</h2>
+        <p>Upload your first video to get started</p>
+        <a href="studio.html" class="btn btn-red"><i class="fas fa-upload"></i> Upload Video</a>
+      </div>
+    </main>
+  </div>
+  <aside id="notificationsPanel" class="notifications-panel hidden" aria-label="Local notifications">
+    <div class="notifications-heading">
+      <h2>Local notifications</h2>
+      <button id="markNotificationsRead" type="button" class="btn-sm">Mark read</button>
+    </div>
+    <p class="demo-disclaimer">Activity saved only in this browser.</p>
+    <div id="notificationsList"></div>
+  </aside>
+
+  <!-- WATCH MODAL -->
+  <div id="watchModal" class="modal-backdrop hidden" onclick="closeWatchModal(event)">
+    <div class="modal" onclick="event.stopPropagation()">
+      <button onclick="closeWatchModal()" class="modal-close">
+        <i class="fas fa-times"></i>
+      </button>
+
+      <div id="watchPlayer" class="watch-player">
+        <i class="fas fa-play-circle"></i>
+      </div>
+
+      <h2 id="watchTitle" style="margin-top:16px;font-size:20px;font-weight:700;">Video Title</h2>
+      <p id="watchViews" class="video-sub">0 views</p>
+      <a id="watchFullPlayer" class="btn btn-outline" href="video_player.html">Open full player</a>
+
+      <div class="watch-header">
+        <div class="watch-creator">
+          <div class="avatar lg"></div>
+          <div>
+            <p class="name">Creator</p>
+            <p class="subs">0 local subscribers</p>
+          </div>
+          <button id="subscribeButton" class="btn btn-red" style="margin-left:8px;" type="button">Subscribe</button>
+        </div>
+        <div class="flex gap-2">
+          <div class="pill-group">
+            <button id="likeButton" type="button"><i class="fas fa-thumbs-up"></i> <span id="watchLikes">0</span></button>
+            <span class="sep"></span>
+            <button id="dislikeButton" type="button" aria-label="Dislike"><i class="fas fa-thumbs-down"></i> <span id="watchDislikes">0</span></button>
+          </div>
+          <button id="shareVideoButton" type="button" class="pill"><i class="fas fa-share"></i> Share</button>
+        </div>
+      </div>
+
+      <div class="comments-section">
+        <h3 style="font-weight:600;">Comments <span id="commentCount">· 0</span></h3>
+        <p id="socialIdentityMessage" class="demo-disclaimer">Test</p>
+        <form id="commentForm" class="comment-input">
+          <div class="avatar sm" style="background:#d1d5db;"></div>
+          <input id="commentInput" type="text" maxlength="2000" placeholder="Add a comment…" required>
+          <button class="btn btn-red" type="submit">Post</button>
+        </form>
+        <div id="commentsList" class="comments-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <footer class="site-footer">
+    <a href="privacy.html">Privacy Policy</a>
+    <a href="community-guidelines.html">Community Guidelines</a>
+    <a href="terms.html">Terms of Service</a>
+  </footer>
+
+  <!-- SCRIPTS -->
+  <script src="theme-init.js" defer></script>
+  <script src="js/pixlect-crypto.js" defer></script>
+  <script src="js/login.js?v=auth-iframe-3" defer></script>
+  <script src="community.js"></script>
+  <script src="storage.js"></script>
+  <script src="settings.js"></script>
+  <script src="video-thumbnails.js"></script>
+  <script src="video-playback.js"></script>
+  <script>
+    // Sidebar toggle
+    const sidebar = document.getElementById('sidebar');
+    document.getElementById('sidebarToggle').addEventListener('click', () => sidebar.classList.toggle('collapsed'));
+    const createMenuToggle = document.getElementById('createMenuToggle');
+    const createMenu = document.getElementById('createMenu');
+    createMenuToggle.addEventListener('click', () => {
+      const expanded = createMenuToggle.getAttribute('aria-expanded') === 'true';
+      createMenuToggle.setAttribute('aria-expanded', String(!expanded));
+      createMenu.classList.toggle('hidden', expanded);
+    });
+    document.addEventListener('click', event => {
+      if (event.target instanceof Element && !event.target.closest('.create-menu')) {
+        createMenu.classList.add('hidden');
+        createMenuToggle.setAttribute('aria-expanded', 'false');
+      }
+    });
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Escape') {
+        createMenu.classList.add('hidden');
+        createMenuToggle.setAttribute('aria-expanded', 'false');
+      }
+    });
+
+    // Watch modal
+    let currentVideo = null;
+    let allVideos = [];
+    let activeCategory = 'all';
+    let activeFeed = 'all';
+    const searchInput = document.getElementById('videoSearch');
+    const notificationsPanel = document.getElementById('notificationsPanel');
+
+    function signedInUser() {
+      return window.PIXELTubeAuth?.user || null;
+    }
+
+    let watchSocialLoadId = 0;
+    async function renderWatchSocial() {
+      if (!currentVideo) return;
+      const videoId = currentVideo.id;
+      const loadId = ++watchSocialLoadId;
+      try {
+        const user = signedInUser();
+        const identity = PIXELTubeDemoSocial.getIdentity(user);
+        const social = await PIXELTubeAPI.getVideoSocial(videoId, user);
+        if (loadId !== watchSocialLoadId || currentVideo?.id !== videoId) return;
+        document.getElementById('watchLikes').textContent = social.likes;
+        document.getElementById('watchDislikes').textContent = social.dislikes;
+        const likeButton = document.getElementById('likeButton');
+        const dislikeButton = document.getElementById('dislikeButton');
+        likeButton.disabled = !identity;
+        dislikeButton.disabled = !identity;
+        likeButton.classList.toggle('active', social.reaction === 'like');
+        dislikeButton.classList.toggle('active', social.reaction === 'dislike');
+        likeButton.setAttribute('aria-pressed', String(social.reaction === 'like'));
+        dislikeButton.setAttribute('aria-pressed', String(social.reaction === 'dislike'));
+
+        const creatorName = document.querySelector('.watch-creator .name');
+        const subscriberCount = document.querySelector('.watch-creator .subs');
+        const subscribeButton = document.getElementById('subscribeButton');
+        creatorName.textContent = social.creator?.name || 'Creator';
+        subscriberCount.textContent = social.creator
+          ? `${social.subscriber_count} subscribers`
+          : 'Creator profile unavailable';
+        subscribeButton.textContent = social.subscribed ? 'Subscribed' : 'Subscribe';
+        subscribeButton.disabled = !identity || !social.canSubscribe;
+        subscribeButton.classList.toggle('active', social.subscribed);
+        subscribeButton.title = identity
+          ? (social.creator ? 'Stored in PIXELTube storage' : 'This creator is not connected to a PIXLECT ID')
+          : 'Sign in with PIXLECT to subscribe';
+
+        document.getElementById('commentCount').textContent = `· ${social.comments.length}`;
+        const commentsList = document.getElementById('commentsList');
+        commentsList.replaceChildren();
+        social.comments.forEach(comment => {
+          const item = document.createElement('article');
+          item.className = 'comment-item';
+          const author = document.createElement('strong');
+          author.textContent = comment.username;
+          const date = document.createElement('time');
+          const createdAt = comment.created_at || comment.createdAt;
+          date.dateTime = createdAt;
+          date.textContent = new Date(createdAt).toLocaleString();
+          const body = document.createElement('p');
+          body.textContent = comment.text;
+          item.append(author, date, body);
+          commentsList.appendChild(item);
+        });
+        document.getElementById('commentInput').disabled = !identity;
+        document.querySelector('#commentForm button').disabled = !identity;
+        document.getElementById('commentInput').placeholder = identity
+          ? 'Add a comment…'
+          : 'Sign in with PIXLECT to comment';
+        document.getElementById('socialIdentityMessage').textContent = identity
+          ? 'Interactions are stored in Bunny Storage. Account IDs are sent by the browser and are not verified by this server.'
+          : 'Sign in with PIXLECT to like, subscribe, or comment.';
+      } catch (error) {
+        console.error('Could not load video interactions from Bunny Storage:', error);
+        document.getElementById('socialIdentityMessage').textContent = `Could not load interactions: ${error.message}`;
+      }
+    }
+
+    async function renderNotifications() {
+      const badge = document.getElementById('notificationBadge');
+      const list = document.getElementById('notificationsList');
+      list.replaceChildren();
+      const identity = PIXELTubeDemoSocial.getIdentity(signedInUser());
+      if (!identity) {
+        badge.classList.add('hidden');
+        const message = document.createElement('p');
+        message.className = 'notification-empty';
+        message.textContent = 'Sign in with PIXLECT to see notifications.';
+        list.appendChild(message);
+        return;
+      }
+      try {
+        const activity = await PIXELTubeAPI.getUserActivity(signedInUser());
+        const notifications = activity.notifications || [];
+        const unread = notifications.filter(item => !item.read).length;
+        badge.classList.toggle('hidden', unread === 0);
+        badge.dataset.count = String(unread);
+        if (!notifications.length) {
+          const message = document.createElement('p');
+          message.className = 'notification-empty';
+          message.textContent = 'No notifications yet.';
+          list.appendChild(message);
+          return;
+        }
+        notifications.forEach(notification => {
+          const item = document.createElement('article');
+          item.className = `notification-item${notification.read ? '' : ' unread'}`;
+          const text = document.createElement('p');
+          text.textContent = notification.text;
+          const date = document.createElement('time');
+          const createdAt = notification.created_at || notification.createdAt;
+          date.dateTime = createdAt;
+          date.textContent = new Date(createdAt).toLocaleString();
+          item.append(text, date);
+          list.appendChild(item);
+        });
+      } catch (error) {
+        console.error('Could not load Bunny notifications:', error);
+        const message = document.createElement('p');
+        message.className = 'notification-empty';
+        message.textContent = `Could not load notifications: ${error.message}`;
+        list.appendChild(message);
+      }
+    }
+
+    function showFeedEmptyState() {
+      const titles = {
+        minis: 'No Minis yet',
+        subscriptions: 'No subscribed channels',
+        history: 'No watch history',
+        liked: 'No liked videos',
+      };
+      const empty = document.getElementById('emptyState');
+      empty.querySelector('h2').textContent = titles[activeFeed] || (allVideos.length ? 'No matching videos' : 'No videos yet');
+      empty.querySelector('p').textContent = PIXELTubeDemoSocial.getIdentity(signedInUser())
+        ? 'Your activity is stored with your PIXLECT account ID.'
+        : 'Sign in with PIXLECT to see account activity.';
+    }
+
+    async function openWatchModal(video) {
+      currentVideo = video;
+      const modal = document.getElementById('watchModal');
+      const player = document.getElementById('watchPlayer');
+      const title  = document.getElementById('watchTitle');
+
+      title.textContent = video?.title || 'Video';
+      document.getElementById('watchFullPlayer').href = `video_player.html?id=${encodeURIComponent(video.id)}`;
+      if (video?.url) {
+        const media = document.createElement('video');
+        media.src = video.url;
+        media.controls = true;
+        media.autoplay = true;
+        media.playsInline = true;
+        player.replaceChildren(media);
+      } else {
+        player.innerHTML = `<i class="fas fa-play-circle"></i>`;
+      }
+      modal.classList.remove('hidden');
+      renderWatchSocial();
+      if (video?.id) {
+        try {
+          const result = await PIXELTubeAPI.addView(video.id);
+          video.views = result.stats.views;
+          document.getElementById('watchViews').textContent = `${video.views} views`;
+          const card = [...document.querySelectorAll('.video-card')].find(item => item.dataset.videoId === video.id);
+          const views = card?.querySelector('.video-views');
+          if (views) views.textContent = `${video.views} views`;
+        } catch (err) {
+          console.error('Failed to record video view:', err);
+        }
+      }
+    }
+    
+    function closeWatchModal(e) {
+      if (e && e.target && e.target.id !== 'watchModal') return;
+      const modal = document.getElementById('watchModal');
+      modal.classList.add('hidden');
+      document.getElementById('watchPlayer').innerHTML = `<i class="fas fa-play-circle"></i>`;
+      currentVideo = null;
+    }
+
+    document.getElementById('likeButton').addEventListener('click', async () => {
+      if (!currentVideo) return;
+      try {
+        await PIXELTubeAPI.setReaction(currentVideo.id, 'like', signedInUser());
+        await renderWatchSocial();
+      } catch (error) {
+        alert(error.message);
+      }
+    });
+    document.getElementById('dislikeButton').addEventListener('click', async () => {
+      if (!currentVideo) return;
+      try {
+        await PIXELTubeAPI.setReaction(currentVideo.id, 'dislike', signedInUser());
+        await renderWatchSocial();
+      } catch (error) {
+        alert(error.message);
+      }
+    });
+    document.getElementById('subscribeButton').addEventListener('click', async () => {
+      if (!currentVideo) return;
+      try {
+        await PIXELTubeAPI.toggleSubscription(currentVideo.id, signedInUser());
+        await renderWatchSocial();
+        await renderNotifications();
+      } catch (error) {
+        alert(error.message);
+      }
+    });
+    document.getElementById('commentForm').addEventListener('submit', async event => {
+      event.preventDefault();
+      if (!currentVideo) return;
+      const input = document.getElementById('commentInput');
+      try {
+        await PIXELTubeAPI.addComment(currentVideo.id, input.value, signedInUser());
+        input.value = '';
+        await renderWatchSocial();
+        await renderNotifications();
+      } catch (error) {
+        alert(error.message);
+      }
+    });
+    document.getElementById('notificationsButton').addEventListener('click', () => {
+      notificationsPanel.classList.toggle('hidden');
+      renderNotifications();
+    });
+    document.getElementById('markNotificationsRead').addEventListener('click', async () => {
+      try {
+        await PIXELTubeAPI.markNotificationsRead(signedInUser());
+        await renderNotifications();
+      } catch (error) {
+        alert(error.message);
+      }
+    });
+    document.querySelectorAll('.nav-item[data-feed]').forEach(button => {
+      button.addEventListener('click', () => {
+        activeFeed = button.dataset.feed;
+        document.querySelectorAll('.nav-item[data-feed]').forEach(item => item.classList.toggle('active', item === button));
+        void renderVideos();
+      });
+    });
+    window.addEventListener('pixeltube:demosocialchange', () => {
+      void renderWatchSocial();
+      void renderNotifications();
+    });
+    window.addEventListener('pixeltube:profilesettingschange', () => {
+      void renderNotifications();
+    });
+    document.addEventListener('DOMContentLoaded', () => {
+      window.PIXELTubeAuth?.onChange(() => {
+        void renderWatchSocial();
+        void renderNotifications();
+      });
+      void renderNotifications();
+    });
+    
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeWatchModal(); });
+
+    // Helpers
+    function escapeHtml(s) {
+      return String(s ?? '').replace(/[&<>"']/g, c => ({
+        '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+      }[c]));
+    }
+    
+    function formatDate(iso) {
+      if (!iso) return 'Just now';
+      const d = new Date(iso);
+      const diff = (Date.now() - d.getTime()) / 1000;
+      if (diff < 60) return 'Just now';
+      if (diff < 3600) return `${Math.floor(diff/60)} min ago`;
+      if (diff < 86400) return `${Math.floor(diff/3600)} hours ago`;
+      if (diff < 604800) return `${Math.floor(diff/86400)} days ago`;
+      return d.toLocaleDateString();
+    }
+
+    // Render video card
+    function renderVideoCard(video) {
+      const card = document.createElement('a');
+      card.className = 'video-card';
+      card.dataset.videoId = video.id;
+      card.href = `video_player.html?id=${encodeURIComponent(video.id)}`;
+      card.setAttribute('aria-label', `Watch ${video.title || 'Untitled'}`);
+
+      const thumbClass = video.url ? 'video-thumb has-media' : 'video-thumb';
+      const thumbInner = video.url
+        ? `<video src="${video.url}" preload="metadata" muted></video>`
+        : '';
+
+      card.innerHTML = `
+        <div class="${thumbClass}">${thumbInner}</div>
+        <div class="video-meta">
+          <div class="avatar"></div>
+          <div class="min-w-0">
+            <h3 class="video-title">${escapeHtml(video.title || 'Untitled')}</h3>
+            <p class="video-sub">
+              ${escapeHtml(video.category || 'General')}
+              ${video.video_type === 'mini' || video.video_type === 'short' ? '<span class="dot">·</span> Mini' : ''}
+              <span class="dot">·</span> ${escapeHtml(video.channel || 'Channel not set')}
+              <span class="dot">·</span> <span class="video-views">${Number(video.views) || 0} views</span>
+              <span class="dot">·</span> ${formatDate(video.created_at)}
+            </p>
+          </div>
+        </div>
+      `;
+      const thumbnail = card.querySelector('.video-thumb video');
+      if (thumbnail) PIXELTubeThumbnails.loadRandomFrame(thumbnail);
+      return card;
+    }
+
+    // Load videos
+    let feedRequestId = 0;
+    async function renderVideos() {
+      const grid = document.getElementById('videoGrid');
+      const empty = document.getElementById('emptyState');
+      const query = searchInput.value.trim().toLocaleLowerCase();
+      const requestId = ++feedRequestId;
+      let feedIds = null;
+      if (activeFeed !== 'all' && activeFeed !== 'minis') {
+        try {
+          const identity = PIXELTubeDemoSocial.getIdentity(signedInUser());
+          if (!identity) throw new Error('Sign in with PIXLECT to view account activity.');
+          const activity = await PIXELTubeAPI.getUserActivity(signedInUser());
+          if (activeFeed === 'subscriptions') {
+            const subscriptions = new Set(activity.subscriptions || []);
+            feedIds = new Set(allVideos.filter(video => subscriptions.has(video.creator_id)).map(video => video.id));
+          } else {
+            feedIds = new Set(activity[activeFeed] || []);
+          }
+        } catch (error) {
+          console.error(`Could not load the ${activeFeed} feed from Bunny Storage:`, error);
+          feedIds = new Set();
+        }
+      }
+      if (requestId !== feedRequestId) return;
+      const videos = allVideos.filter(video =>
+        (activeFeed === 'all'
+          || (activeFeed === 'minis' && (video.video_type === 'mini' || video.video_type === 'short'))
+          || (feedIds && feedIds.has(video.id)))
+        &&
+        (activeCategory === 'all' || (video.category || 'General').toLocaleLowerCase() === activeCategory.toLocaleLowerCase())
+        && (!query || `${video.title || ''} ${video.description || ''} ${video.category || ''}`.toLocaleLowerCase().includes(query))
+      );
+      grid.innerHTML = '';
+      if (!videos.length) {
+        empty.classList.remove('hidden');
+        showFeedEmptyState();
+        return;
+      }
+      empty.classList.add('hidden');
+      videos.forEach(v => grid.appendChild(renderVideoCard(v)));
+    }
+
+    async function loadVideos() {
+      const grid = document.getElementById('videoGrid');
+      const empty = document.getElementById('emptyState');
+      grid.innerHTML = '<div class="skeleton h-40"></div>'.repeat(4);
+      empty.classList.add('hidden');
+      try {
+      allVideos = await PIXELTubeAPI.listVideos();
+      await renderVideos();
+      const requestedVideo = new URLSearchParams(location.search).get('video');
+      const sharedVideo = requestedVideo && allVideos.find(video => video.id === requestedVideo);
+      if (sharedVideo) openWatchModal(sharedVideo);
+      } catch (err) {
+      console.error('Failed to load videos:', err);
+        grid.innerHTML = `
+          <div class="col-span-full text-center py-12" style="grid-column: 1 / -1;">
+            <i class="fas fa-exclamation-triangle text-3xl text-yellow-500 mb-2"></i>
+            <p class="text-sm text-gray-600">Could not load videos.</p>
+            <p class="text-xs text-gray-400 mt-1">${escapeHtml(err.message)}</p>
+            <button onclick="loadVideos()" class="mt-3 px-4 py-1.5 text-sm border border-gray-300 rounded-full hover:bg-gray-50">Retry</button>
+          </div>
+        `;
+      }
+    }
+
+    document.querySelectorAll('.chip[data-category]').forEach(chip => {
+      chip.addEventListener('click', () => {
+        activeCategory = chip.dataset.category;
+        document.querySelectorAll('.chip[data-category]').forEach(item => item.classList.toggle('active', item === chip));
+        renderVideos();
+      });
+    });
+    document.getElementById('searchButton').addEventListener('click', renderVideos);
+    searchInput.addEventListener('input', renderVideos);
+    searchInput.addEventListener('keydown', event => {
+      if (event.key === 'Enter') renderVideos();
+    });
+    document.getElementById('voiceSearchButton').addEventListener('click', () => {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SpeechRecognition) {
+        alert('Voice search is not supported by this browser.');
+        return;
+      }
+      const recognition = new SpeechRecognition();
+      recognition.lang = navigator.language;
+      recognition.onresult = event => {
+        searchInput.value = event.results[0][0].transcript;
+        renderVideos();
+      };
+      recognition.onerror = event => console.error('Voice search failed:', event.error);
+      recognition.start();
+    });
+    document.getElementById('shareVideoButton').addEventListener('click', async () => {
+      if (!currentVideo) return;
+      const shareUrl = new URL(`video_player.html?id=${encodeURIComponent(currentVideo.id)}`, location.href).href;
+      try {
+        if (navigator.share) await navigator.share({ title: currentVideo.title, url: shareUrl });
+        else {
+          await navigator.clipboard.writeText(shareUrl);
+          alert('Video link copied.');
+        }
+      } catch (err) {
+        if (err.name !== 'AbortError') {
+          console.error('Could not share video:', err);
+          alert('Could not share this video.');
+        }
+      }
+    });
+    document.addEventListener('DOMContentLoaded', loadVideos);
+  </script>
+</body>
+</html>

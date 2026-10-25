@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PIXELTube · Video Player</title>
+  <link rel="icon" href="favicon.ico" sizes="any">
+  <script src="settings.js" defer></script>
+  <script>
+    (function () {
+      try {
+        var theme = localStorage.getItem('pixeltube:theme');
+        if (theme === 'white' || theme === 'gaming') {
+          document.documentElement.setAttribute('data-theme', theme);
+          var link = document.createElement('link');
+          link.rel = 'stylesheet';
+          link.href = 'theme/' + theme + '/style.css';
+          document.head.appendChild(link);
+        }
+      } catch (error) {}
+    })();
+  </script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">
+  <link rel="stylesheet" href="styles.css?v=auth-iframe-2">
+  <script src="adsense.js" async></script>
+</head>
+<body>
+  <header class="header">
+    <div class="header-left">
+      <a href="index.html" class="brand">
+        <img class="brand-icon" src="favicon.ico" alt="">
+        <span class="brand-red">PIXEL</span><span class="brand-black">Tube</span>
+      </a>
+    </div>
+    <div class="header-right">
+      <a href="studio.html" class="btn btn-outline"><i class="fas fa-video"></i> Studio</a>
+      <a href="index.html" class="btn btn-outline"><i class="fas fa-home"></i> Home</a>
+    </div>
+  </header>
+
+  <main class="video-player-page">
+    <section class="video-player-main">
+      <div class="video-player-shell" data-video-player>
+        <video id="videoPlayer" controls playsinline preload="metadata"></video>
+        <p class="playback-message" data-playback-message role="status" aria-live="polite"></p>
+      </div>
+      <p class="demo-disclaimer">Only one PIXELTube video can play at a time across tabs on this site. Playback on other sites or apps cannot be controlled.</p>
+      <div id="playerError" class="player-error hidden" role="alert"></div>
+      <h1 id="playerTitle" class="player-title">Loading video…</h1>
+      <p id="playerMetadata" class="video-sub"></p>
+
+      <div class="player-actions">
+        <div class="watch-creator">
+          <div class="avatar lg"></div>
+          <div>
+            <p id="creatorName" class="name">Creator</p>
+            <p id="creatorSubscribers" class="subs">0 local subscribers</p>
+          </div>
+          <button id="subscribeButton" type="button" class="btn btn-red">Subscribe</button>
+        </div>
+        <div class="flex gap-2">
+          <div class="pill-group">
+            <button id="likeButton" type="button"><i class="fas fa-thumbs-up"></i> <span id="likeCount">0</span></button>
+            <span class="sep"></span>
+            <button id="dislikeButton" type="button" aria-label="Dislike"><i class="fas fa-thumbs-down"></i> <span id="dislikeCount">0</span></button>
+          </div>
+          <button id="shareButton" type="button" class="pill"><i class="fas fa-share"></i> Share</button>
+          <button id="reportVideoToggle" type="button" class="pill" aria-expanded="false" aria-controls="reportVideoPanel">
+            <i class="fas fa-flag"></i> Report
+          </button>
+        </div>
+      </div>
+
+      <section id="reportVideoPanel" class="report-panel hidden" aria-labelledby="reportVideoHeading">
+        <h2 id="reportVideoHeading">Report this video</h2>
+        <p class="demo-disclaimer">Reports are saved only in this browser's demo queue and are visible to the configured PIXLECT moderator accounts on this browser.</p>
+        <form id="reportVideoForm">
+          <label class="form-group">
+            <span class="form-label">Why are you reporting this video?</span>
+            <select id="reportReason" class="select" required>
+              <option value="">Choose a reason</option>
+              <option value="spam">Spam or misleading content</option>
+              <option value="harassment">Harassment or hateful content</option>
+              <option value="harmful">Violent or harmful content</option>
+              <option value="copyright">Copyright concern</option>
+              <option value="other">Something else</option>
+            </select>
+          </label>
+          <label class="form-group">
+            <span class="form-label">Additional details <span class="text-soft">(optional)</span></span>
+            <textarea id="reportDetails" class="textarea" rows="3" maxlength="1000" placeholder="Share any context that may help moderators review this report."></textarea>
+          </label>
+          <div class="report-actions">
+            <button id="submitVideoReport" type="submit" class="btn btn-red">Send report</button>
+            <p id="reportStatus" class="report-status" role="status" aria-live="polite"></p>
+          </div>
+        </form>
+      </section>
+
+      <section class="player-description">
+        <p id="descriptionText"> </p>
+        <p class="demo-disclaimer">Views, likes, comments, and subscriptions are stored in Bunny Storage. This demo does not verify account IDs on the server.</p>
+      </section>
+
+      <section class="comments-section">
+        <h2>Comments <span id="commentCount">· 0</span></h2>
+        <p id="identityMessage" class="demo-disclaimer"></p>
+        <form id="commentForm" class="comment-input">
+          <input id="commentInput" type="text" maxlength="2000" placeholder="Add a local demo comment…" required>
+          <button class="btn btn-red" type="submit">Post</button>
+        </form>
+        <div id="commentsList" class="comments-list"></div>
+      </section>
+    </section>
+
+    <aside class="related-videos">
+      <h2>More videos</h2>
+      <div id="relatedVideos" class="related-video-list"></div>
+    </aside>
+  </main>
+
+  <footer class="site-footer">
+    <a href="privacy.html">Privacy Policy</a>
+    <a href="community-guidelines.html">Community Guidelines</a>
+    <a href="terms.html">Terms of Service</a>
+  </footer>
+
+  <script src="theme-init.js" defer></script>
+  <script src="js/pixlect-crypto.js" defer></script>
+  <script src="js/login.js?v=auth-iframe-3" defer></script>
+  <script src="community.js"></script>
+  <script src="storage.js"></script>
+  <script src="video-playback.js"></script>
+  <script src="video-player.js"></script>
+</body>
+</html>

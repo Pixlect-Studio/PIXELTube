@@ -1,0 +1,21 @@
+[
+  {
+    "family": "Charles White Singapore",
+    "files": {
+      "400": "Charles White Singapore/CharlesWrightSingapore.otf"
+    }
+  },
+  {
+    "family": "Chrysanthemum",
+    "files": {
+      "400": "Chrysanthemum/Chrysanthemum-Regular.otf",
+      "700": "Chrysanthemum/Chrysanthemum-Bold.otf"
+    }
+  },
+  {
+    "family": "Thorn Serif",
+    "files": {
+      "400": "Thorn Serif/ThornSerif-Libre.ttf"
+    }
+  }
+]

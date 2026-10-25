@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PIXELTube · Admin Dashboard</title>
+  <link rel="icon" href="favicon.ico" sizes="any">
+  <script src="settings.js" defer></script>
+
+  <!-- Prevent flash: apply saved theme before anything paints -->
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem('pixeltube:theme');
+        if (t) {
+          document.documentElement.setAttribute('data-theme', t);
+          var link = document.createElement('link');
+          link.rel = 'stylesheet';
+          link.href = 'theme/' + t + '/style.css';
+          link.setAttribute('data-pixeltube-theme', t);
+          document.head.appendChild(link);
+        }
+      } catch (e) {}
+    })();
+  </script>
+
+  <!-- Font Awesome (stable 6.7.2 to fix glyph warnings) -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">
+  
+  <!-- Base Styles -->
+  <link rel="stylesheet" href="styles.css?v=auth-iframe-2">
+  <script src="adsense.js" async></script>
+</head>
+<body>
+
+  <!-- TOP NAV -->
+  <header class="header">
+    <div class="header-left">
+      <a href="index.html" class="brand">
+        <img class="brand-icon" src="favicon.ico" alt="">
+        <span class="brand-red">PIXEL</span><span class="brand-black">Tube</span>
+      </a>
+      <span class="badge">ADMIN</span>
+    </div>
+
+    <div class="header-right">
+      <a href="index.html" class="btn btn-outline">
+        <i class="fas fa-home"></i> Back to PIXELTube
+      </a>
+      <a href="studio.html" class="btn btn-outline">
+        <i class="fas fa-video"></i> Studio
+      </a>
+      <div id="pixlect-user"></div>
+      <button id="pixlect-login" class="pixlect-btn">Sign in with PIXLECT</button>
+    </div>
+  </header>
+
+  <!-- MAIN CONTENT -->
+  <main class="main" style="max-width: 1280px; margin: 0 auto; padding-top: 32px;">
+    <h1 style="font-size: 24px; font-weight: 700; margin-bottom: 24px;">Admin Overview</h1>
+    <p class="legal-notice" style="margin-bottom: 24px;">PIXELTube has no server-verified admin roles. The report queue below is a browser-local demo and does not sync between devices or browsers.</p>
+    <div class="stats-grid four" style="margin-bottom: 32px;">
+      <div class="stat-card">
+        <p class="stat-label">Total Users</p>
+        <p class="stat-value">Unavailable</p>
+      </div>
+      <div class="stat-card">
+        <p class="stat-label">Total Videos</p>
+        <p id="adminVideoCount" class="stat-value">—</p>
+      </div>
+      <div class="stat-card">
+        <p class="stat-label">Recorded Views</p>
+        <p id="adminViewCount" class="stat-value">—</p>
+      </div>
+      <div class="stat-card">
+        <p class="stat-label">System Storage</p>
+        <p class="stat-value">Unavailable</p>
+      </div>
+    </div>
+
+    <section>
+      <div class="flex justify-between items-center" style="margin-bottom: 12px;">
+        <h2 style="font-size: 18px; font-weight: 600;">Videos</h2>
+        <button id="refreshAdminVideos" class="btn btn-outline" type="button">Refresh</button>
+      </div>
+      <div class="table-wrap">
+        <table class="admin-table">
+          <thead>
+            <tr>
+              <th>Video Title</th>
+              <th>Upload Date</th>
+              <th>Category</th>
+              <th>Visibility</th>
+            </tr>
+          </thead>
+          <tbody id="adminVideos"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="moderationSection" class="moderation-section">
+      <div class="flex justify-between items-center" style="margin-bottom: 12px;">
+        <div>
+          <h2 style="font-size: 18px; font-weight: 600;">Video reports</h2>
+          <p id="moderationAccessMessage" class="demo-disclaimer" role="status" aria-live="polite">
+            Sign in with an approved PIXLECT moderator account to view this browser's queue.
+          </p>
+        </div>
+        <button id="refreshReports" class="btn btn-outline hidden" type="button">Refresh reports</button>
+      </div>
+      <div id="moderationReports" class="moderation-reports hidden" aria-live="polite"></div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <a href="privacy.html">Privacy Policy</a>
+    <a href="community-guidelines.html">Community Guidelines</a>
+    <a href="terms.html">Terms of Service</a>
+  </footer>
+
+  <!-- SCRIPTS -->
+  <script src="theme-init.js" defer></script>
+  <script src="js/pixlect-crypto.js" defer></script>
+  <script src="js/login.js?v=auth-iframe-3" defer></script>
+  <script src="community.js"></script>
+  <script src="storage.js"></script>
+  <script>
+    const adminVideos = document.getElementById('adminVideos');
+    const moderationAccessMessage = document.getElementById('moderationAccessMessage');
+    const moderationReports = document.getElementById('moderationReports');
+    const refreshReportsButton = document.getElementById('refreshReports');
+
+    async function loadAdminVideos() {
+      adminVideos.innerHTML = '<tr><td colspan="4">Loading videos…</td></tr>';
+      try {
+        const videos = await PIXELTubeAPI.listVideos();
+        document.getElementById('adminVideoCount').textContent = videos.length;
+        document.getElementById('adminViewCount').textContent =
+          videos.reduce((total, video) => total + (Number(video.views) || 0), 0).toLocaleString();
+        adminVideos.replaceChildren();
+        if (!videos.length) {
+          adminVideos.innerHTML = '<tr><td colspan="4">No videos yet.</td></tr>';
+          return;
+        }
+        videos.forEach(video => {
+          const row = document.createElement('tr');
+          [video.title || 'Untitled', video.created_at ? new Date(video.created_at).toLocaleDateString() : '—',
+            video.category || 'General', video.visibility || 'Public'].forEach(value => {
+            const cell = document.createElement('td');
+            cell.textContent = value;
+            row.appendChild(cell);
+          });
+          adminVideos.appendChild(row);
+        });
+      } catch (error) {
+        document.getElementById('adminVideoCount').textContent = '—';
+        document.getElementById('adminViewCount').textContent = '—';
+        adminVideos.innerHTML = '<tr><td colspan="4">Could not load videos.</td></tr>';
+        console.error('Failed to load admin video list:', error);
+      }
+    }
+
+    const reportReasons = {
+      spam: 'Spam or misleading content',
+      harassment: 'Harassment or hateful content',
+      harmful: 'Violent or harmful content',
+      copyright: 'Copyright concern',
+      other: 'Something else',
+    };
+
+    function renderModerationReports(user) {
+      moderationReports.replaceChildren();
+      if (!PIXELTubeDemoSocial.isModerator(user)) {
+        moderationAccessMessage.textContent = user
+          ? 'This PIXLECT account is not on the configured moderator list.'
+          : 'Sign in with an approved PIXLECT moderator account to view this browser’s queue.';
+        moderationReports.classList.add('hidden');
+        refreshReportsButton.classList.add('hidden');
+        return;
+      }
+
+      moderationAccessMessage.textContent = 'Reports saved in this browser are visible to the configured moderator accounts here.';
+      moderationReports.classList.remove('hidden');
+      refreshReportsButton.classList.remove('hidden');
+      try {
+        const reports = PIXELTubeDemoSocial.getModeratorReports(user);
+        if (!reports.length) {
+          moderationReports.textContent = 'No video reports in this browser yet.';
+          return;
+        }
+
+        reports.forEach(report => {
+          const card = document.createElement('article');
+          card.className = 'moderation-report';
+
+          const header = document.createElement('div');
+          header.className = 'moderation-report-header';
+          const title = document.createElement('h3');
+          title.textContent = report.videoTitle || 'Untitled';
+          const status = document.createElement('span');
+          status.className = `report-status-badge ${report.status}`;
+          status.textContent = report.status;
+          header.append(title, status);
+
+          const reason = document.createElement('p');
+          reason.className = 'moderation-report-reason';
+          reason.textContent = reportReasons[report.reason] || 'Other';
+
+          const meta = document.createElement('p');
+          meta.className = 'demo-disclaimer';
+          meta.textContent = `Reported by ${report.reporterName || 'Guest'} · ${new Date(report.createdAt).toLocaleString()}`;
+
+          const details = document.createElement('p');
+          details.className = 'moderation-report-details';
+          details.textContent = report.details || 'No additional details provided.';
+
+          const link = document.createElement('a');
+          link.className = 'btn btn-outline';
+          link.href = `video_player.html?id=${encodeURIComponent(report.videoId)}`;
+          link.textContent = 'Review video';
+
+          const actions = document.createElement('div');
+          actions.className = 'moderation-report-actions';
+          actions.appendChild(link);
+          if (report.status === 'pending') {
+            [['reviewed', 'Mark reviewed'], ['dismissed', 'Dismiss report']].forEach(([nextStatus, label]) => {
+              const button = document.createElement('button');
+              button.type = 'button';
+              button.className = 'btn btn-outline';
+              button.textContent = label;
+              button.addEventListener('click', () => {
+                try {
+                  PIXELTubeDemoSocial.updateModeratorReport(user, report.id, nextStatus);
+                  renderModerationReports(user);
+                } catch (error) {
+                  moderationAccessMessage.textContent = `Could not update report: ${error.message}`;
+                }
+              });
+              actions.appendChild(button);
+            });
+          }
+          card.append(header, reason, meta, details, actions);
+          moderationReports.appendChild(card);
+        });
+      } catch (error) {
+        moderationAccessMessage.textContent = `Could not load reports: ${error.message}`;
+        console.error('Failed to load local moderation reports:', error);
+      }
+    }
+
+    document.getElementById('refreshAdminVideos').addEventListener('click', loadAdminVideos);
+    refreshReportsButton.addEventListener('click', () => renderModerationReports(window.PIXELTubeAuth?.user));
+    document.addEventListener('DOMContentLoaded', loadAdminVideos);
+    window.addEventListener('load', () => {
+      window.PIXELTubeAuth?.onChange(renderModerationReports);
+      window.addEventListener('pixeltube:demosocialchange', () => renderModerationReports(window.PIXELTubeAuth?.user));
+      window.addEventListener('storage', event => {
+        if (event.key === 'pixeltube:demo-social:v1') {
+          renderModerationReports(window.PIXELTubeAuth?.user);
+        }
+      });
+    });
+  </script>
+</body>
+</html>

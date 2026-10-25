@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PIXELTube · Settings</title>
+  <link rel="icon" href="favicon.ico" sizes="any">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="header">
+    <a href="index.html" class="brand">
+      <img class="brand-icon" src="favicon.ico" alt="">
+      <span class="brand-red">PIXEL</span><span class="brand-black">Tube</span>
+    </a>
+    <div class="header-right">
+      <a href="index.html" class="btn btn-outline"><i class="fas fa-home"></i> Home</a>
+      <a href="studio.html" class="btn btn-outline"><i class="fas fa-video"></i> Studio</a>
+    </div>
+  </header>
+
+  <main class="settings-page">
+    <h1>Customize PIXELTube</h1>
+    <p class="settings-intro">Personalize the look and set up your channel before publishing.</p>
+
+    <form id="settingsForm" class="settings-card">
+      <section class="settings-section">
+        <h2>Appearance</h2>
+        <label class="form-group">
+          <span class="form-label">Theme</span>
+          <select id="themeSelect" class="select">
+            <option value="white">White</option>
+            <option value="gaming">Gaming</option>
+          </select>
+        </label>
+        <label class="form-group">
+          <span class="form-label">Accent color</span>
+          <span class="settings-color-row">
+            <input id="accentInput" type="color" value="#0c1062" aria-label="Choose accent color">
+            <span id="accentValue">#0C1062</span>
+          </span>
+        </label>
+      </section>
+
+      <section class="settings-section">
+        <h2>Your profile</h2>
+        <label class="form-group">
+          <span class="form-label">Display name <span class="text-soft">(optional)</span></span>
+          <input id="nameInput" class="input" type="text" maxlength="50" autocomplete="nickname" placeholder="How your name appears">
+        </label>
+        <label class="form-group">
+          <span class="form-label">Channel name <span class="req">*</span></span>
+          <input id="channelInput" class="input" type="text" maxlength="50" autocomplete="organization" placeholder="Name your channel">
+          <span class="demo-disclaimer">A channel name is required before you can publish videos. Settings are saved in this browser.</span>
+        </label>
+      </section>
+
+      <p id="settingsMessage" class="settings-message" role="status" aria-live="polite"></p>
+      <div class="settings-actions">
+        <button class="btn btn-red" type="submit">Save settings</button>
+        <a id="continueUpload" class="btn btn-outline" href="studio.html">Continue to upload</a>
+      </div>
+    </form>
+  </main>
+
+  <footer class="site-footer">
+    <a href="privacy.html">Privacy Policy</a>
+    <a href="community-guidelines.html">Community Guidelines</a>
+    <a href="terms.html">Terms of Service</a>
+  </footer>
+
+  <script src="theme-init.js" defer></script>
+  <script src="settings.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const settingsForm = document.getElementById('settingsForm');
+      const themeSelect = document.getElementById('themeSelect');
+      const accentInput = document.getElementById('accentInput');
+      const accentValue = document.getElementById('accentValue');
+      const settingsMessage = document.getElementById('settingsMessage');
+      const continueUpload = document.getElementById('continueUpload');
+
+      const params = new URLSearchParams(location.search);
+      const returnTo = params.get('returnTo');
+      if (returnTo === 'studio.html' || returnTo === 'studio.html?type=mini' || returnTo === 'studio.html?type=short' || returnTo === 'upload.html') {
+        continueUpload.href = returnTo;
+      }
+
+      const profile = PIXELTubeSettings.get();
+      document.getElementById('nameInput').value = profile.name;
+      document.getElementById('channelInput').value = profile.channel;
+      accentInput.value = profile.accent;
+      accentValue.textContent = profile.accent.toUpperCase();
+      themeSelect.value = PIXELTubeTheme.get().theme;
+
+      accentInput.addEventListener('input', () => {
+        accentValue.textContent = accentInput.value.toUpperCase();
+      });
+
+      settingsForm.addEventListener('submit', async event => {
+        event.preventDefault();
+        settingsMessage.textContent = '';
+        try {
+          const saved = PIXELTubeSettings.save({
+            name: document.getElementById('nameInput').value,
+            channel: document.getElementById('channelInput').value,
+            accent: accentInput.value,
+          });
+          await PIXELTubeTheme.set(themeSelect.value);
+          settingsMessage.textContent = saved.channel
+            ? `Settings saved. Your channel is ${saved.channel}.`
+            : 'Settings saved. Add a channel name before publishing a video.';
+        } catch (error) {
+          settingsMessage.textContent = error.message;
+        }
+      });
+    });
+  </script>
+</body>
+</html>

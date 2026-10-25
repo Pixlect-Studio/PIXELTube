@@ -1,0 +1,20 @@
+[
+  {
+    "family": "Audex",
+    "files": {
+      "400": "Audex/Audex-Regular.ttf"
+    }
+  },
+  {
+    "family": "Porto Beuna",
+    "files": {
+      "400": "Porto Beuna/Porto_Buena.otf"
+    }
+  },
+  {
+    "family": "Yoster Island",
+    "files": {
+      "400": "Yoster Island/yoster.ttf"
+    }
+  }
+]
