@@ -18,6 +18,42 @@
     document.getElementById('playerTitle').textContent = 'Video unavailable';
   }
 
+  // Injects CSS specifically for Minis to act like YouTube Shorts / TikTok
+  function applyMiniMode() {
+    const style = document.createElement('style');
+    style.textContent = `
+      /* Shorts Layout */
+      .video-player-page { 
+        grid-template-columns: 1fr; 
+        max-width: 450px; 
+        margin: 0 auto; 
+        padding-top: 20px;
+      }
+      .related-videos { display: none; }
+      .video-player-shell { 
+        aspect-ratio: 9 / 16; 
+        max-height: 75vh;
+        border-radius: 12px; 
+        background: #000; 
+      }
+      /* Force dark mode for the Shorts experience */
+      body { background: #0f0f0f; color: #fff; }
+      .header { background: #0f0f0f; border-bottom: 1px solid #333; }
+      .brand-black { color: #fff !important; }
+      .watch-creator .name { color: #fff; }
+      .video-sub, .demo-disclaimer { color: #aaa; }
+      .player-description { background: #222; color: #ddd; }
+      .comment-item { border-bottom-color: #333; }
+      .comment-input input { border-bottom-color: #333; color: #fff; }
+      .pill-group, .pill { background: #222; border-color: #444; color: #fff; }
+      .btn-outline { color: #fff; border-color: #444; background: transparent; }
+      .btn-outline:hover { background: #333; }
+      .site-footer { border-top-color: #333; }
+    `;
+    document.head.appendChild(style);
+    player.loop = true; // Shorts loop automatically
+  }
+
   async function renderSocial() {
     if (!video) return;
     const loadId = ++socialLoadId;
@@ -25,9 +61,12 @@
       const user = currentUser();
       const identity = PIXELTubeDemoSocial.getIdentity(user);
       const social = await PIXELTubeAPI.getVideoSocial(video.id, user);
+      
       if (loadId !== socialLoadId) return;
+      
       document.getElementById('likeCount').textContent = social.likes;
       document.getElementById('dislikeCount').textContent = social.dislikes;
+      
       const like = document.getElementById('likeButton');
       const dislike = document.getElementById('dislikeButton');
       like.disabled = !identity;
@@ -42,6 +81,7 @@
       document.getElementById('creatorSubscribers').textContent = owner
         ? `${social.subscriber_count} subscribers`
         : (video.creator_name ? `Created by ${video.creator_name}` : 'Channel');
+      
       const subscribe = document.getElementById('subscribeButton');
       subscribe.disabled = !identity || !social.canSubscribe;
       subscribe.textContent = social.subscribed ? 'Subscribed' : 'Subscribe';
@@ -66,16 +106,20 @@
         item.append(name, time, body);
         comments.appendChild(item);
       });
+      
       document.getElementById('commentCount').textContent = `· ${social.comments.length}`;
       const input = document.getElementById('commentInput');
+      const commentBtn = document.querySelector('#commentForm button');
+      
       input.disabled = !identity;
       input.placeholder = identity ? 'Add a comment…' : 'Sign in with PIXLECT to comment';
-      document.querySelector('#commentForm button').disabled = !identity;
+      commentBtn.disabled = !identity;
+      
       document.getElementById('identityMessage').textContent = identity
-        ? 'Comments, likes, and subscriptions are stored by PIXELTube. Account IDs are supplied by the browser and are not verified by this demo server.'
+        ? 'Comments, likes, and subscriptions are stored by PIXELTube.'
         : 'Sign in with PIXLECT to like, subscribe, or comment.';
     } catch (error) {
-      console.error('Could not load video interactions from Bunny Storage:', error);
+      console.error('Could not load video interactions:', error);
       if (loadId === socialLoadId) {
         document.getElementById('identityMessage').textContent = `Could not load interactions: ${error.message}`;
       }
@@ -116,15 +160,34 @@
     try {
       video = await PIXELTubeAPI.getVideo(videoId);
       if (!video.url) throw new Error('This video does not have a playable URL.');
+      
+      // Setup Shorts/Mini Mode if applicable
+      if (video.video_type === 'mini' || video.video_type === 'short') {
+        applyMiniMode();
+      }
+      
       document.title = `PIXELTube · ${video.title || 'Video'}`;
       document.getElementById('playerTitle').textContent = video.title || 'Untitled';
       document.getElementById('playerMetadata').textContent =
         `${video.category || 'General'} · ${video.channel || 'Channel unavailable'} · ${Number(video.views) || 0} views · ${video.created_at ? new Date(video.created_at).toLocaleDateString() : ''}`;
       document.getElementById('descriptionText').textContent = video.description || 'No description provided.';
+      
       player.src = video.url;
       player.setAttribute('aria-label', `Video player: ${video.title || 'Untitled'}`);
+      
+      // Autoplay for Minis
+      if (video.video_type === 'mini' || video.video_type === 'short') {
+        player.autoplay = true;
+        player.play().catch(e => console.warn('Autoplay blocked by browser:', e));
+      }
+
       renderSocial();
-      await loadRelated();
+      
+      // Only load related videos if it's NOT a mini
+      if (video.video_type !== 'mini' && video.video_type !== 'short') {
+        await loadRelated();
+      }
+      
     } catch (error) {
       console.error('Could not load video:', error);
       showError(`Could not load this video: ${error.message}`);
@@ -152,6 +215,7 @@
       alert(error.message);
     }
   });
+  
   document.getElementById('dislikeButton').addEventListener('click', async () => {
     try {
       await PIXELTubeAPI.setReaction(video.id, 'dislike', currentUser());
@@ -160,6 +224,7 @@
       alert(error.message);
     }
   });
+  
   document.getElementById('subscribeButton').addEventListener('click', async () => {
     try {
       await PIXELTubeAPI.toggleSubscription(video.id, currentUser());
@@ -168,14 +233,30 @@
       alert(error.message);
     }
   });
+
+  // THE FIX: Prevent 9 duplicate "Hi" comments
   document.getElementById('commentForm').addEventListener('submit', async event => {
     event.preventDefault();
+    const btn = event.target.querySelector('button[type="submit"]');
+    const input = document.getElementById('commentInput');
+    
+    if (btn.disabled) return; // Stop if already posting
+    
+    // Lock the button
+    btn.disabled = true;
+    btn.textContent = 'Posting...';
+    
     try {
-      await PIXELTubeAPI.addComment(video.id, document.getElementById('commentInput').value, currentUser());
-      document.getElementById('commentInput').value = '';
-      renderSocial();
+      await PIXELTubeAPI.addComment(video.id, input.value, currentUser());
+      input.value = '';
+      await renderSocial();
     } catch (error) {
       alert(error.message);
+    } finally {
+      // Unlock only if the user is signed in
+      const identity = PIXELTubeDemoSocial.getIdentity(currentUser());
+      btn.disabled = !identity;
+      btn.textContent = 'Post';
     }
   });
 
@@ -205,8 +286,9 @@
         document.getElementById('reportReason').value,
         document.getElementById('reportDetails').value,
       );
-      reportStatus.textContent = 'Report sent to the local moderator queue. Thank you for helping keep PIXELTube safe.';
+      reportStatus.textContent = 'Report sent to the local moderator queue. Thank you.';
       reportForm.reset();
+      setTimeout(() => { submitReport.disabled = false; }, 3000);
     } catch (error) {
       reportStatus.textContent = error.message;
       submitReport.disabled = false;
@@ -233,5 +315,6 @@
   document.addEventListener('DOMContentLoaded', () => {
     window.PIXELTubeAuth?.onChange(renderSocial);
   });
+  
   loadVideo();
 })();
