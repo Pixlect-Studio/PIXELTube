@@ -22,26 +22,14 @@
   function applyMiniMode() {
     const style = document.createElement('style');
     style.textContent = `
-      /* Shorts Layout */
-      .video-player-page { 
-        grid-template-columns: 1fr; 
-        max-width: 450px; 
-        margin: 0 auto; 
-        padding-top: 20px;
-      }
+      .video-player-page { grid-template-columns: 1fr; max-width: 450px; margin: 0 auto; padding-top: 20px; }
       .related-videos { display: none; }
-      .video-player-shell { 
-        aspect-ratio: 9 / 16; 
-        max-height: 75vh;
-        border-radius: 12px; 
-        background: #000; 
-      }
-      /* Force dark mode for the Shorts experience */
+      .video-player-shell { aspect-ratio: 9 / 16; max-height: 75vh; border-radius: 12px; background: #000; }
       body { background: #0f0f0f; color: #fff; }
       .header { background: #0f0f0f; border-bottom: 1px solid #333; }
       .brand-black { color: #fff !important; }
       .watch-creator .name { color: #fff; }
-      .video-sub, .demo-disclaimer { color: #aaa; }
+      .video-sub, .disclaimer { color: #aaa; }
       .player-description { background: #222; color: #ddd; }
       .comment-item { border-bottom-color: #333; }
       .comment-input input { border-bottom-color: #333; color: #fff; }
@@ -51,7 +39,7 @@
       .site-footer { border-top-color: #333; }
     `;
     document.head.appendChild(style);
-    player.loop = true; // Shorts loop automatically
+    player.loop = true;
   }
 
   async function renderSocial() {
@@ -59,7 +47,6 @@
     const loadId = ++socialLoadId;
     try {
       const user = currentUser();
-      const identity = PIXELTubeDemoSocial.getIdentity(user);
       const social = await PIXELTubeAPI.getVideoSocial(video.id, user);
       
       if (loadId !== socialLoadId) return;
@@ -69,8 +56,10 @@
       
       const like = document.getElementById('likeButton');
       const dislike = document.getElementById('dislikeButton');
-      like.disabled = !identity;
-      dislike.disabled = !identity;
+      
+      // If user is signed in, buttons are clickable
+      like.disabled = !user;
+      dislike.disabled = !user;
       like.classList.toggle('active', social.reaction === 'like');
       dislike.classList.toggle('active', social.reaction === 'dislike');
       like.setAttribute('aria-pressed', String(social.reaction === 'like'));
@@ -83,10 +72,10 @@
         : (video.creator_name ? `Created by ${video.creator_name}` : 'Channel');
       
       const subscribe = document.getElementById('subscribeButton');
-      subscribe.disabled = !identity || !social.canSubscribe;
+      subscribe.disabled = !user || !social.canSubscribe;
       subscribe.textContent = social.subscribed ? 'Subscribed' : 'Subscribe';
       subscribe.classList.toggle('active', social.subscribed);
-      subscribe.title = identity
+      subscribe.title = user
         ? (owner ? 'Subscription is saved to PIXELTube storage' : 'Creator account is unavailable')
         : 'Sign in with PIXLECT to subscribe';
 
@@ -111,12 +100,12 @@
       const input = document.getElementById('commentInput');
       const commentBtn = document.querySelector('#commentForm button');
       
-      input.disabled = !identity;
-      input.placeholder = identity ? 'Add a comment…' : 'Sign in with PIXLECT to comment';
-      commentBtn.disabled = !identity;
+      input.disabled = !user;
+      input.placeholder = user ? 'Add a comment…' : 'Sign in with PIXLECT to comment';
+      commentBtn.disabled = !user;
       
-      document.getElementById('identityMessage').textContent = identity
-        ? 'Comments, likes, and subscriptions are stored by PIXELTube.'
+      document.getElementById('identityMessage').textContent = user
+        ? 'Comments, likes, and subscriptions are securely stored in PIXELTube.'
         : 'Sign in with PIXLECT to like, subscribe, or comment.';
     } catch (error) {
       console.error('Could not load video interactions:', error);
@@ -161,7 +150,6 @@
       video = await PIXELTubeAPI.getVideo(videoId);
       if (!video.url) throw new Error('This video does not have a playable URL.');
       
-      // Setup Shorts/Mini Mode if applicable
       if (video.video_type === 'mini' || video.video_type === 'short') {
         applyMiniMode();
       }
@@ -175,7 +163,6 @@
       player.src = video.url;
       player.setAttribute('aria-label', `Video player: ${video.title || 'Untitled'}`);
       
-      // Autoplay for Minis
       if (video.video_type === 'mini' || video.video_type === 'short') {
         player.autoplay = true;
         player.play().catch(e => console.warn('Autoplay blocked by browser:', e));
@@ -183,7 +170,6 @@
 
       renderSocial();
       
-      // Only load related videos if it's NOT a mini
       if (video.video_type !== 'mini' && video.video_type !== 'short') {
         await loadRelated();
       }
@@ -234,15 +220,13 @@
     }
   });
 
-  // THE FIX: Prevent 9 duplicate "Hi" comments
   document.getElementById('commentForm').addEventListener('submit', async event => {
     event.preventDefault();
     const btn = event.target.querySelector('button[type="submit"]');
     const input = document.getElementById('commentInput');
     
-    if (btn.disabled) return; // Stop if already posting
+    if (btn.disabled) return; 
     
-    // Lock the button
     btn.disabled = true;
     btn.textContent = 'Posting...';
     
@@ -253,45 +237,8 @@
     } catch (error) {
       alert(error.message);
     } finally {
-      // Unlock only if the user is signed in
-      const identity = PIXELTubeDemoSocial.getIdentity(currentUser());
-      btn.disabled = !identity;
+      btn.disabled = !currentUser();
       btn.textContent = 'Post';
-    }
-  });
-
-  const reportToggle = document.getElementById('reportVideoToggle');
-  const reportPanel = document.getElementById('reportVideoPanel');
-  const reportForm = document.getElementById('reportVideoForm');
-  const reportStatus = document.getElementById('reportStatus');
-  const submitReport = document.getElementById('submitVideoReport');
-
-  reportToggle.addEventListener('click', () => {
-    const isExpanded = reportToggle.getAttribute('aria-expanded') === 'true';
-    reportToggle.setAttribute('aria-expanded', String(!isExpanded));
-    reportPanel.classList.toggle('hidden', isExpanded);
-    if (!isExpanded) document.getElementById('reportReason').focus();
-  });
-
-  reportForm.addEventListener('submit', event => {
-    event.preventDefault();
-    if (!video || submitReport.disabled) return;
-    submitReport.disabled = true;
-    reportStatus.textContent = 'Sending report…';
-    try {
-      PIXELTubeDemoSocial.reportVideo(
-        currentUser(),
-        video.id,
-        video.title,
-        document.getElementById('reportReason').value,
-        document.getElementById('reportDetails').value,
-      );
-      reportStatus.textContent = 'Report sent to the local moderator queue. Thank you.';
-      reportForm.reset();
-      setTimeout(() => { submitReport.disabled = false; }, 3000);
-    } catch (error) {
-      reportStatus.textContent = error.message;
-      submitReport.disabled = false;
     }
   });
 
@@ -304,10 +251,7 @@
         alert('Video link copied.');
       }
     } catch (error) {
-      if (error.name !== 'AbortError') {
-        console.error('Could not share video:', error);
-        alert('Could not share this video.');
-      }
+      if (error.name !== 'AbortError') console.error('Could not share video:', error);
     }
   });
 

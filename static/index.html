@@ -63,7 +63,7 @@
           <a href="studio.html?type=mini"><i class="fas fa-bolt"></i><span><strong>Create Mini</strong><small>Upload a short-form video</small></span></a>
         </div>
       </div>
-      <button id="notificationsButton" class="icon-btn" type="button" aria-label="Notifications" title="Coming Soon...">
+      <button id="notificationsButton" class="icon-btn" type="button" aria-label="Notifications">
         <i class="fas fa-bell"></i>
         <span id="notificationBadge" class="notif-dot hidden"></span>
       </button>
@@ -84,20 +84,20 @@
         <button type="button" class="nav-item" data-feed="minis" title="Browse PIXELTube Minis">
           <i class="fas fa-bolt"></i><span class="nav-label">Minis</span>
         </button>
-        <button type="button" class="nav-item" data-feed="subscriptions" title="Locally saved subscriptions">
+        <button type="button" class="nav-item" data-feed="subscriptions" title="Your subscriptions">
           <i class="fas fa-users"></i><span class="nav-label">Subscriptions</span>
         </button>
         <hr class="nav-divider">
         <button type="button" class="nav-item" disabled title="Library requires a signed-in account">
           <i class="fas fa-bookmark"></i><span class="nav-label">Library</span>
         </button>
-        <button type="button" class="nav-item" data-feed="history" title="Your local viewing history">
+        <button type="button" class="nav-item" data-feed="history" title="Your viewing history">
           <i class="fas fa-history"></i><span class="nav-label">History</span>
         </button>
         <a href="studio.html" class="nav-item">
           <i class="fas fa-video"></i><span class="nav-label">Your Videos</span>
         </a>
-        <button type="button" class="nav-item" data-feed="liked" title="Videos you liked in this browser">
+        <button type="button" class="nav-item" data-feed="liked" title="Videos you liked">
           <i class="fas fa-thumbs-up"></i><span class="nav-label">Liked Videos</span>
         </button>
         <hr class="nav-divider">
@@ -149,12 +149,13 @@
       </div>
     </main>
   </div>
-  <aside id="notificationsPanel" class="notifications-panel hidden" aria-label="Local notifications">
+  
+  <aside id="notificationsPanel" class="notifications-panel hidden" aria-label="Notifications">
     <div class="notifications-heading">
-      <h2>Local notifications</h2>
+      <h2>Notifications</h2>
       <button id="markNotificationsRead" type="button" class="btn-sm">Mark read</button>
     </div>
-    <p class="demo-disclaimer">Activity saved only in this browser.</p>
+    <p class="demo-disclaimer">Activity saved securely with your account.</p>
     <div id="notificationsList"></div>
   </aside>
 
@@ -178,7 +179,7 @@
           <div class="avatar lg"></div>
           <div>
             <p class="name">Creator</p>
-            <p class="subs">0 local subscribers</p>
+            <p class="subs">0 subscribers</p>
           </div>
           <button id="subscribeButton" class="btn btn-red" style="margin-left:8px;" type="button">Subscribe</button>
         </div>
@@ -194,7 +195,7 @@
 
       <div class="comments-section">
         <h3 style="font-weight:600;">Comments <span id="commentCount">· 0</span></h3>
-        <p id="socialIdentityMessage" class="demo-disclaimer">Test</p>
+        <p id="socialIdentityMessage" class="demo-disclaimer">Sign in to comment.</p>
         <form id="commentForm" class="comment-input">
           <div class="avatar sm" style="background:#d1d5db;"></div>
           <input id="commentInput" type="text" maxlength="2000" placeholder="Add a comment…" required>
@@ -215,7 +216,6 @@
   <script src="theme-init.js" defer></script>
   <script src="js/pixlect-crypto.js" defer></script>
   <script src="js/login.js?v=auth-iframe-3" defer></script>
-  <script src="community.js"></script>
   <script src="storage.js"></script>
   <script src="settings.js"></script>
   <script src="video-thumbnails.js"></script>
@@ -263,15 +263,16 @@
       const loadId = ++watchSocialLoadId;
       try {
         const user = signedInUser();
-        const identity = PIXELTubeDemoSocial.getIdentity(user);
         const social = await PIXELTubeAPI.getVideoSocial(videoId, user);
         if (loadId !== watchSocialLoadId || currentVideo?.id !== videoId) return;
+        
         document.getElementById('watchLikes').textContent = social.likes;
         document.getElementById('watchDislikes').textContent = social.dislikes;
+        
         const likeButton = document.getElementById('likeButton');
         const dislikeButton = document.getElementById('dislikeButton');
-        likeButton.disabled = !identity;
-        dislikeButton.disabled = !identity;
+        likeButton.disabled = !user;
+        dislikeButton.disabled = !user;
         likeButton.classList.toggle('active', social.reaction === 'like');
         dislikeButton.classList.toggle('active', social.reaction === 'dislike');
         likeButton.setAttribute('aria-pressed', String(social.reaction === 'like'));
@@ -285,10 +286,10 @@
           ? `${social.subscriber_count} subscribers`
           : 'Creator profile unavailable';
         subscribeButton.textContent = social.subscribed ? 'Subscribed' : 'Subscribe';
-        subscribeButton.disabled = !identity || !social.canSubscribe;
+        subscribeButton.disabled = !user || !social.canSubscribe;
         subscribeButton.classList.toggle('active', social.subscribed);
-        subscribeButton.title = identity
-          ? (social.creator ? 'Stored in PIXELTube storage' : 'This creator is not connected to a PIXLECT ID')
+        subscribeButton.title = user
+          ? (social.creator ? 'Saved to PIXELTube storage' : 'This creator is not connected to a PIXLECT ID')
           : 'Sign in with PIXLECT to subscribe';
 
         document.getElementById('commentCount').textContent = `· ${social.comments.length}`;
@@ -308,16 +309,17 @@
           item.append(author, date, body);
           commentsList.appendChild(item);
         });
-        document.getElementById('commentInput').disabled = !identity;
-        document.querySelector('#commentForm button').disabled = !identity;
-        document.getElementById('commentInput').placeholder = identity
+        
+        document.getElementById('commentInput').disabled = !user;
+        document.querySelector('#commentForm button').disabled = !user;
+        document.getElementById('commentInput').placeholder = user
           ? 'Add a comment…'
           : 'Sign in with PIXLECT to comment';
-        document.getElementById('socialIdentityMessage').textContent = identity
-          ? 'Interactions are stored in Bunny Storage. Account IDs are sent by the browser and are not verified by this server.'
+        document.getElementById('socialIdentityMessage').textContent = user
+          ? 'Interactions are stored securely with your account.'
           : 'Sign in with PIXLECT to like, subscribe, or comment.';
       } catch (error) {
-        console.error('Could not load video interactions from Bunny Storage:', error);
+        console.error('Could not load video interactions:', error);
         document.getElementById('socialIdentityMessage').textContent = `Could not load interactions: ${error.message}`;
       }
     }
@@ -326,8 +328,7 @@
       const badge = document.getElementById('notificationBadge');
       const list = document.getElementById('notificationsList');
       list.replaceChildren();
-      const identity = PIXELTubeDemoSocial.getIdentity(signedInUser());
-      if (!identity) {
+      if (!signedInUser()) {
         badge.classList.add('hidden');
         const message = document.createElement('p');
         message.className = 'notification-empty';
@@ -361,7 +362,7 @@
           list.appendChild(item);
         });
       } catch (error) {
-        console.error('Could not load Bunny notifications:', error);
+        console.error('Could not load notifications:', error);
         const message = document.createElement('p');
         message.className = 'notification-empty';
         message.textContent = `Could not load notifications: ${error.message}`;
@@ -378,8 +379,8 @@
       };
       const empty = document.getElementById('emptyState');
       empty.querySelector('h2').textContent = titles[activeFeed] || (allVideos.length ? 'No matching videos' : 'No videos yet');
-      empty.querySelector('p').textContent = PIXELTubeDemoSocial.getIdentity(signedInUser())
-        ? 'Your activity is stored with your PIXLECT account ID.'
+      empty.querySelector('p').textContent = signedInUser()
+        ? 'Your activity is stored with your account.'
         : 'Sign in with PIXLECT to see account activity.';
     }
 
@@ -430,33 +431,36 @@
       try {
         await PIXELTubeAPI.setReaction(currentVideo.id, 'like', signedInUser());
         await renderWatchSocial();
-      } catch (error) {
-        alert(error.message);
-      }
+      } catch (error) { alert(error.message); }
     });
+    
     document.getElementById('dislikeButton').addEventListener('click', async () => {
       if (!currentVideo) return;
       try {
         await PIXELTubeAPI.setReaction(currentVideo.id, 'dislike', signedInUser());
         await renderWatchSocial();
-      } catch (error) {
-        alert(error.message);
-      }
+      } catch (error) { alert(error.message); }
     });
+    
     document.getElementById('subscribeButton').addEventListener('click', async () => {
       if (!currentVideo) return;
       try {
         await PIXELTubeAPI.toggleSubscription(currentVideo.id, signedInUser());
         await renderWatchSocial();
         await renderNotifications();
-      } catch (error) {
-        alert(error.message);
-      }
+      } catch (error) { alert(error.message); }
     });
+    
     document.getElementById('commentForm').addEventListener('submit', async event => {
       event.preventDefault();
       if (!currentVideo) return;
       const input = document.getElementById('commentInput');
+      const btn = event.target.querySelector('button[type="submit"]');
+      
+      if (btn.disabled) return;
+      btn.disabled = true;
+      btn.textContent = 'Posting...';
+      
       try {
         await PIXELTubeAPI.addComment(currentVideo.id, input.value, signedInUser());
         input.value = '';
@@ -464,20 +468,24 @@
         await renderNotifications();
       } catch (error) {
         alert(error.message);
+      } finally {
+        btn.disabled = !signedInUser();
+        btn.textContent = 'Post';
       }
     });
+
     document.getElementById('notificationsButton').addEventListener('click', () => {
       notificationsPanel.classList.toggle('hidden');
       renderNotifications();
     });
+    
     document.getElementById('markNotificationsRead').addEventListener('click', async () => {
       try {
         await PIXELTubeAPI.markNotificationsRead(signedInUser());
         await renderNotifications();
-      } catch (error) {
-        alert(error.message);
-      }
+      } catch (error) { alert(error.message); }
     });
+    
     document.querySelectorAll('.nav-item[data-feed]').forEach(button => {
       button.addEventListener('click', () => {
         activeFeed = button.dataset.feed;
@@ -485,13 +493,11 @@
         void renderVideos();
       });
     });
-    window.addEventListener('pixeltube:demosocialchange', () => {
-      void renderWatchSocial();
-      void renderNotifications();
-    });
+    
     window.addEventListener('pixeltube:profilesettingschange', () => {
       void renderNotifications();
     });
+    
     document.addEventListener('DOMContentLoaded', () => {
       window.PIXELTubeAuth?.onChange(() => {
         void renderWatchSocial();
@@ -564,8 +570,7 @@
       let feedIds = null;
       if (activeFeed !== 'all' && activeFeed !== 'minis') {
         try {
-          const identity = PIXELTubeDemoSocial.getIdentity(signedInUser());
-          if (!identity) throw new Error('Sign in with PIXLECT to view account activity.');
+          if (!signedInUser()) throw new Error('Sign in with PIXLECT to view account activity.');
           const activity = await PIXELTubeAPI.getUserActivity(signedInUser());
           if (activeFeed === 'subscriptions') {
             const subscriptions = new Set(activity.subscriptions || []);
@@ -574,7 +579,7 @@
             feedIds = new Set(activity[activeFeed] || []);
           }
         } catch (error) {
-          console.error(`Could not load the ${activeFeed} feed from Bunny Storage:`, error);
+          console.error(`Could not load the ${activeFeed} feed:`, error);
           feedIds = new Set();
         }
       }
@@ -603,13 +608,13 @@
       grid.innerHTML = '<div class="skeleton h-40"></div>'.repeat(4);
       empty.classList.add('hidden');
       try {
-      allVideos = await PIXELTubeAPI.listVideos();
-      await renderVideos();
-      const requestedVideo = new URLSearchParams(location.search).get('video');
-      const sharedVideo = requestedVideo && allVideos.find(video => video.id === requestedVideo);
-      if (sharedVideo) openWatchModal(sharedVideo);
+        allVideos = await PIXELTubeAPI.listVideos();
+        await renderVideos();
+        const requestedVideo = new URLSearchParams(location.search).get('video');
+        const sharedVideo = requestedVideo && allVideos.find(video => video.id === requestedVideo);
+        if (sharedVideo) openWatchModal(sharedVideo);
       } catch (err) {
-      console.error('Failed to load videos:', err);
+        console.error('Failed to load videos:', err);
         grid.innerHTML = `
           <div class="col-span-full text-center py-12" style="grid-column: 1 / -1;">
             <i class="fas fa-exclamation-triangle text-3xl text-yellow-500 mb-2"></i>
@@ -628,11 +633,13 @@
         renderVideos();
       });
     });
+    
     document.getElementById('searchButton').addEventListener('click', renderVideos);
     searchInput.addEventListener('input', renderVideos);
     searchInput.addEventListener('keydown', event => {
       if (event.key === 'Enter') renderVideos();
     });
+    
     document.getElementById('voiceSearchButton').addEventListener('click', () => {
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
       if (!SpeechRecognition) {
@@ -648,6 +655,7 @@
       recognition.onerror = event => console.error('Voice search failed:', event.error);
       recognition.start();
     });
+    
     document.getElementById('shareVideoButton').addEventListener('click', async () => {
       if (!currentVideo) return;
       const shareUrl = new URL(`video_player.html?id=${encodeURIComponent(currentVideo.id)}`, location.href).href;
@@ -664,6 +672,7 @@
         }
       }
     });
+    
     document.addEventListener('DOMContentLoaded', loadVideos);
   </script>
 </body>
