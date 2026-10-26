@@ -149,7 +149,13 @@ def file_exists(remote_path: str) -> bool:
     remote_path = remote_path.lstrip("/")
     url = f"{STORAGE_BASE}/{BUNNY_STORAGE_ZONE}/{remote_path}"
     try:
-        r = requests.head(url, headers={"AccessKey": BUNNY_ACCESS_KEY}, timeout=15)
-        return r.status_code == 200
+        # Use GET with Range instead of HEAD to avoid Bunny/CDN edge-case blocks.
+        # Range bytes=0-0 requests only 1 byte of the file, which is incredibly fast.
+        r = requests.get(
+            url, 
+            headers={"AccessKey": BUNNY_ACCESS_KEY, "Range": "bytes=0-0"}, 
+            timeout=15
+        )
+        return r.status_code in (200, 206)
     except requests.exceptions.RequestException:
         return False
