@@ -1,6 +1,14 @@
 /**
- * storage.js — PIXELTube client-side video fetcher.
- * Talks to the FastAPI backend (/api/videos) which proxies Bunny Storage.
+ * storage.js — PIXELTube client-side video fetcher + uploader.
+ *
+ * Video bytes go directly from the browser to Bunny Storage using a signed
+ * upload URL issued by our API (`/api/upload/init` → PUT to Bunny →
+ * `/api/upload/complete`). This bypasses Vercel's 4.5 MB serverless body limit
+ * so the `413` error no longer occurs for large uploads.
+ *
+ * For this to work, your Bunny Storage zone must allow CORS from your site's
+ * origin with methods `PUT, GET, HEAD, OPTIONS` and allowed headers
+ * `AccessKey, Content-Type`.
  */
 
 window.PIXELTubeAPI = (() => {
@@ -121,39 +129,110 @@ window.PIXELTubeAPI = (() => {
     return requestJson(`/api/videos/${encodeURIComponent(id)}`, { method: 'DELETE' });
   }
 
+  /**
+   * Upload a video using the client-direct flow:
+   *   1. POST /api/upload/init           → reserve ID + Bunny URL + headers
+   *   2. PUT  (upload_url)               → stream file bytes to Bunny directly
+   *   3. POST /api/upload/complete       → register metadata in the video index
+   *
+   * Resolves with the final video record from the server.
+   * Rejects with a descriptive Error if any step fails.
+   */
   async function uploadVideo(file, meta = {}, onProgress = () => {}) {
-    const fd = new FormData();
-    fd.append('file', file);
-    fd.append('title', meta.title || 'Untitled');
-    fd.append('description', meta.description || '');
-    fd.append('category', meta.category || 'General');
-    fd.append('visibility', meta.visibility || 'Public');
-    fd.append('channel', meta.channel || '');
-    fd.append('creator_name', meta.creator_name || '');
-    fd.append('video_type', meta.video_type || 'long');
-    fd.append('creator_id', meta.creator_id || userId(window.PIXELTubeAuth?.user));
+    if (!file) throw new Error('No file selected.');
+    const creatorId = meta.creator_id || userId(window.PIXELTubeAuth?.user) || '';
 
-    return new Promise((resolve, reject) => {
-      const request = new XMLHttpRequest();
-      request.open('POST', `${BASE}/api/upload`);
-      request.upload.addEventListener('progress', event => {
-        if (event.lengthComputable) onProgress(Math.round((event.loaded / event.total) * 100));
-      });
-      request.addEventListener('load', () => {
-        if (request.status < 200 || request.status >= 300) {
-          reject(new Error(request.responseText || request.statusText || 'Upload failed'));
-          return;
-        }
+    // ---- Step 1: reserve an upload slot ----
+    const initBody = new FormData();
+    initBody.append('title', meta.title || 'Untitled');
+    initBody.append('description', meta.description || '');
+    initBody.append('category', meta.category || 'General');
+    initBody.append('visibility', meta.visibility || 'Public');
+    initBody.append('channel', meta.channel || '');
+    initBody.append('creator_name', meta.creator_name || '');
+    initBody.append('video_type', meta.video_type || 'long');
+    initBody.append('creator_id', creatorId);
+    initBody.append('filename', file.name || 'video.mp4');
+    initBody.append('content_type', file.type || 'video/mp4');
+
+    let init;
+    try {
+      const initRes = await fetch(`${BASE}/api/upload/init`, { method: 'POST', body: initBody });
+      if (!initRes.ok) {
+        let message = initRes.statusText || 'Could not start upload';
         try {
-          resolve(JSON.parse(request.responseText));
-        } catch (error) {
-          reject(new Error(`Invalid upload response: ${error.message}`));
+          const detail = await initRes.json();
+          message = detail.detail || message;
+        } catch (_) { /* ignore */ }
+        throw new Error(message);
+      }
+      init = await initRes.json();
+    } catch (err) {
+      // Network failures surface here too
+      throw new Error(`Upload init failed: ${err.message}`);
+    }
+
+    const { video_id, remote_path, upload_url, headers, meta: validatedMeta } = init || {};
+    if (!video_id || !remote_path || !upload_url) {
+      throw new Error('Server did not return a valid upload URL.');
+    }
+
+    // ---- Step 2: stream the file straight to Bunny ----
+    await new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('PUT', upload_url, true);
+      // Content-Type is derived from the file by default; set explicitly so
+      // Bunny receives the intended type. AccessKey is required for auth.
+      for (const [key, value] of Object.entries(headers || {})) {
+        try { xhr.setRequestHeader(key, value); } catch (_) { /* skip restricted headers */ }
+      }
+      xhr.upload.addEventListener('progress', (event) => {
+        if (event.lengthComputable && event.total > 0) {
+          const pct = Math.min(99, Math.round((event.loaded / event.total) * 100));
+          try { onProgress(pct); } catch (_) { /* ignore consumer errors */ }
         }
       });
-      request.addEventListener('error', () => reject(new Error('Network error during upload')));
-      request.addEventListener('abort', () => reject(new Error('Upload was cancelled')));
-      request.send(fd);
+      xhr.addEventListener('load', () => {
+        if (xhr.status >= 200 && xhr.status < 300) resolve();
+        else reject(new Error(
+          `Bunny rejected the upload (${xhr.status}). ` +
+          `${xhr.responseText || xhr.statusText || ''}`.trim()
+        ));
+      });
+      xhr.addEventListener('error', () => reject(new Error(
+        'Network error while uploading to Bunny. ' +
+        'If this is a CORS error, enable CORS on your Bunny Storage zone ' +
+        '(methods PUT/GET/HEAD/OPTIONS, headers AccessKey, Content-Type).'
+      )));
+      xhr.addEventListener('abort', () => reject(new Error('Upload was cancelled.')));
+      xhr.send(file);
     });
+
+    try { onProgress(100); } catch (_) { /* ignore */ }
+
+    // ---- Step 3: finalize the record in the video index ----
+    try {
+      const doneRes = await fetch(`${BASE}/api/upload/complete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          video_id,
+          remote_path,
+          meta: validatedMeta || meta,
+        }),
+      });
+      if (!doneRes.ok) {
+        let message = doneRes.statusText || 'Could not finalize upload';
+        try {
+          const detail = await doneRes.json();
+          message = detail.detail || message;
+        } catch (_) { /* ignore */ }
+        throw new Error(message);
+      }
+      return await doneRes.json();
+    } catch (err) {
+      throw new Error(`Upload saved to storage but index registration failed: ${err.message}`);
+    }
   }
 
   return {

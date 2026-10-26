@@ -15,14 +15,18 @@ Endpoints:
     GET  /api/videos/trending    (Trending feed)
     GET  /api/videos/{id}        (Single video details)
     POST /api/videos/{id}/view   (Increment view count)
-    POST /api/upload             (Upload new video)
+    POST /api/upload/init        (Step 1 of client-direct upload — returns Bunny URL + headers)
+    POST /api/upload/complete    (Step 2 of client-direct upload — registers metadata)
+    POST /api/upload             (Legacy in-line upload; 413s on Vercel for >4.5 MB)
     DELETE /api/videos/{id}      (Delete video)
     GET  /api/admin/stats        (Platform stats for admin dashboard)
 """
 
 import os
+import re
 import uuid
 import tempfile
+import threading
 from datetime import datetime
 from pathlib import Path
 
@@ -33,7 +37,15 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
 # Core Storage & Data Modules
-from storage import upload_video, delete_video
+from storage import (
+    upload_video,
+    delete_video,
+    file_exists,
+    STORAGE_BASE,
+    BUNNY_STORAGE_ZONE,
+    BUNNY_ACCESS_KEY,
+    CDN_BASE,
+)
 from videos import load_all_videos, save_video_index, get_video
 from statistics import get_video_stats, increment_view, get_platform_stats
 from feed import get_home_feed, get_trending_feed
@@ -56,6 +68,10 @@ if not os.path.isdir(TMP_DIR):
 # We use a regex so preview deployments (*.vercel.app) are also allowed.
 ALLOWED_ORIGIN_REGEX = r"https://.*\.vercel\.app"
 
+# Serializes video-index mutations so concurrent uploads/deletes can't
+# clobber each other's updates.
+_INDEX_LOCK = threading.RLock()
+
 # ------------------------------------------------------------------
 # App setup
 # ------------------------------------------------------------------
@@ -74,6 +90,49 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ------------------------------------------------------------------
+# Helpers
+# ------------------------------------------------------------------
+
+def _validate_upload_meta(title, description, category, visibility,
+                          channel, creator_name, video_type, creator_id):
+    """Validate upload metadata (shared by /init, /complete, and legacy /upload)."""
+    channel = str(channel or "").strip()
+    creator_name = str(creator_name or "").strip()
+    title = (str(title or "").strip() or "Untitled")[:200]
+
+    if not channel:
+        raise HTTPException(400, "Set a channel name in Settings before uploading")
+    if len(channel) > 50:
+        raise HTTPException(400, "Channel name must be 50 characters or fewer")
+    if len(creator_name) > 50:
+        raise HTTPException(400, "Display name must be 50 characters or fewer")
+
+    if video_type == "short":
+        video_type = "mini"
+    elif video_type == "video":
+        video_type = "long"
+    if video_type not in ("long", "mini"):
+        raise HTTPException(400, "Video type must be 'long' or 'mini'")
+
+    creator_id = str(creator_id or "").strip()
+    if creator_id:
+        try:
+            creator_id = social.validate_user_id(creator_id)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    return {
+        "title": title,
+        "description": str(description or "")[:5000],
+        "category": str(category or "General")[:50],
+        "visibility": str(visibility or "Public")[:20],
+        "channel": channel,
+        "creator_name": creator_name,
+        "creator_id": creator_id or None,
+        "video_type": video_type,
+    }
 
 # ------------------------------------------------------------------
 # API Routes
@@ -279,7 +338,123 @@ def api_mark_notifications_read(user_id: str):
     except RuntimeError as exc:
         raise HTTPException(502, str(exc)) from exc
 
-# ---------------- UPLOAD ----------------
+# ---------------- UPLOAD (client-direct to Bunny) ----------------
+# The browser uploads the file bytes straight to Bunny. Vercel only ever sees
+# a small JSON/FormData request, so it never trips its 4.5 MB function limit.
+
+@app.post("/api/upload/init")
+async def api_upload_init(
+    title: str = Form("Untitled"),
+    description: str = Form(""),
+    category: str = Form("General"),
+    visibility: str = Form("Public"),
+    channel: str = Form(...),
+    creator_name: str = Form(""),
+    video_type: str = Form("video"),
+    creator_id: str = Form(""),
+    filename: str = Form(...),
+    content_type: str = Form("video/mp4"),
+):
+    """
+    Step 1 — reserve a video ID + Bunny upload URL. The browser then PUTs the
+    raw file directly to Bunny using the returned URL and headers, and finally
+    calls /api/upload/complete.
+    """
+    if not BUNNY_ACCESS_KEY:
+        raise HTTPException(500, "Server is not configured for uploads (missing BUNNY_ACCESS_KEY)")
+
+    meta = _validate_upload_meta(
+        title, description, category, visibility,
+        channel, creator_name, video_type, creator_id,
+    )
+
+    ext = os.path.splitext(filename)[1].lower() or ".mp4"
+    if not re.fullmatch(r"\.[a-z0-9]{1,8}", ext):
+        ext = ".mp4"
+
+    video_id = uuid.uuid4().hex
+    remote_path = f"videos/{video_id}{ext}"
+    upload_url = f"{STORAGE_BASE}/{BUNNY_STORAGE_ZONE}/{remote_path}"
+    public_url = f"{CDN_BASE.rstrip('/')}/{remote_path}" if CDN_BASE else ""
+
+    return {
+        "video_id": video_id,
+        "remote_path": remote_path,
+        "upload_url": upload_url,
+        "public_url": public_url,
+        "headers": {
+            "AccessKey": BUNNY_ACCESS_KEY,
+            "Content-Type": content_type or "video/mp4",
+        },
+        "meta": meta,
+    }
+
+
+@app.post("/api/upload/complete")
+async def api_upload_complete(payload: dict = Body(...)):
+    """
+    Step 2 — called by the browser once the file is already in Bunny.
+    Verifies the file exists, then writes it into the video index.
+    """
+    video_id = str(payload.get("video_id", "")).strip()
+    remote_path = str(payload.get("remote_path", "")).strip()
+    meta_in = payload.get("meta") or {}
+
+    if not re.fullmatch(r"[a-f0-9]{32}", video_id):
+        raise HTTPException(400, "Invalid video_id")
+    if not remote_path.startswith(f"videos/{video_id}") or ".." in remote_path:
+        raise HTTPException(400, "Invalid remote_path")
+
+    meta = _validate_upload_meta(
+        meta_in.get("title", "Untitled"),
+        meta_in.get("description", ""),
+        meta_in.get("category", "General"),
+        meta_in.get("visibility", "Public"),
+        meta_in.get("channel", ""),
+        meta_in.get("creator_name", ""),
+        meta_in.get("video_type", "long"),
+        meta_in.get("creator_id", ""),
+    )
+
+    if not file_exists(remote_path):
+        raise HTTPException(400, "Upload not found in storage. Did the upload actually finish?")
+
+    public_url = f"{CDN_BASE.rstrip('/')}/{remote_path}" if CDN_BASE else ""
+    video = {
+        "id": video_id,
+        **meta,
+        "url": public_url,
+        "remote_path": remote_path,
+        "created_at": datetime.utcnow().isoformat() + "Z",
+        "status": "Active",
+    }
+
+    with _INDEX_LOCK:
+        videos = load_all_videos()
+        existing = next((v for v in videos if v.get("id") == video_id), None)
+        if existing:
+            # Idempotent retry — the browser already completed this upload.
+            return JSONResponse(existing, status_code=200)
+        videos.append(video)
+        if not save_video_index(videos):
+            raise HTTPException(502, "Video uploaded but its index could not be saved")
+
+    if meta["creator_id"]:
+        try:
+            social.register_video_owner(
+                video_id,
+                meta["creator_id"],
+                meta["channel"] or meta["creator_name"],
+            )
+        except (RuntimeError, ValueError) as exc:
+            raise HTTPException(502, f"Creator profile could not be saved: {exc}") from exc
+
+    return JSONResponse(video, status_code=201)
+
+# ---------------- UPLOAD (legacy in-line) ----------------
+# NOTE: This endpoint streams the file through Vercel and will fail with 413
+# for anything >4.5 MB. The frontend must use /api/upload/init + /api/upload/complete
+# for real video uploads. Kept for local dev and small files.
 
 @app.post("/api/upload")
 async def api_upload(
@@ -295,25 +470,11 @@ async def api_upload(
 ):
     if not file.filename:
         raise HTTPException(400, "No file provided")
-    channel = channel.strip()
-    creator_name = creator_name.strip()
-    if not channel:
-        raise HTTPException(400, "Set a channel name in Settings before uploading")
-    if len(channel) > 50:
-        raise HTTPException(400, "Channel name must be 50 characters or fewer")
-    if len(creator_name) > 50:
-        raise HTTPException(400, "Display name must be 50 characters or fewer")
-    if video_type == "short":
-        video_type = "mini"
-    elif video_type == "video":
-        video_type = "long"
-    if video_type not in ("long", "mini"):
-        raise HTTPException(400, "Video type must be 'long' or 'mini'")
-    if creator_id:
-        try:
-            creator_id = social.validate_user_id(creator_id)
-        except ValueError as exc:
-            raise HTTPException(400, str(exc)) from exc
+
+    meta = _validate_upload_meta(
+        title, description, category, visibility,
+        channel, creator_name, video_type, creator_id,
+    )
 
     ext = os.path.splitext(file.filename)[1].lower() or ".mp4"
     video_id = uuid.uuid4().hex
@@ -340,16 +501,9 @@ async def api_upload(
             raise HTTPException(502, f"Bunny upload failed: {result['message']}")
 
         # 3. Create metadata object
-        meta = {
+        video = {
             "id": video_id,
-            "title": title,
-            "description": description,
-            "category": category,
-            "visibility": visibility,
-            "channel": channel,
-            "creator_name": creator_name,
-            "creator_id": creator_id or None,
-            "video_type": video_type,
+            **meta,
             "url": result["url"],
             "remote_path": remote_path,
             "created_at": datetime.utcnow().isoformat() + "Z",
@@ -357,17 +511,18 @@ async def api_upload(
         }
 
         # 4. Update master index in Bunny
-        videos = load_all_videos()
-        videos.append(meta)
-        if not save_video_index(videos):
-            raise HTTPException(502, "Video uploaded but its index could not be saved")
+        with _INDEX_LOCK:
+            videos = load_all_videos()
+            videos.append(video)
+            if not save_video_index(videos):
+                raise HTTPException(502, "Video uploaded but its index could not be saved")
 
-        if creator_id:
+        if meta["creator_id"]:
             try:
                 social.register_video_owner(
                     video_id,
-                    creator_id,
-                    channel or creator_name,
+                    meta["creator_id"],
+                    meta["channel"] or meta["creator_name"],
                 )
             except (RuntimeError, ValueError) as exc:
                 raise HTTPException(
@@ -375,7 +530,7 @@ async def api_upload(
                     "Video uploaded, but its creator profile could not be saved to Bunny Storage",
                 ) from exc
 
-        return JSONResponse(meta, status_code=201)
+        return JSONResponse(video, status_code=201)
 
     finally:
         if tmp_path and os.path.exists(tmp_path):
@@ -399,10 +554,13 @@ def api_delete_video(video_id: str):
     if not result["success"]:
         raise HTTPException(502, f"Bunny delete failed: {result['message']}")
 
-    # 2. Remove from index and save
-    videos = [v for v in videos if v["id"] != video_id]
-    if not save_video_index(videos):
-        raise HTTPException(502, "Video was deleted but the video index could not be saved")
+    # 2. Remove from index and save (reload inside the lock to avoid clobbering
+    #    concurrent uploads between the first read and the write)
+    with _INDEX_LOCK:
+        videos = load_all_videos()
+        videos = [v for v in videos if v["id"] != video_id]
+        if not save_video_index(videos):
+            raise HTTPException(502, "Video was deleted but the video index could not be saved")
 
     return {"success": True, "id": video_id}
 

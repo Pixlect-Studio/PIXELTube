@@ -170,9 +170,7 @@
 
     function renderModerationReports(user) {
       moderationReports.replaceChildren();
-      const MODS = new Set(['ikuwpu9yigv0yhtuzpxy2t9pdph2','sbtsrrjaz5deh6o9bdvcjgifbvj2','sqqbvrd7a1avxlln5xxkblvgprw1','dss1y55ukrcceaxyloqi2yco4hl2','67f9crkupauk0dmpaz3tygtfqsw2']);
-      const uid = user?.uid || user?.PIXELUserUUID || user?.pixelUserUUID || user?.uuid;
-      if (!uid || !MODS.has(uid.toLowerCase())) {
+      if (!PIXELTubeDemoSocial.isModerator(user)) {
         moderationAccessMessage.textContent = user
           ? 'This PIXLECT account is not on the configured moderator list.'
           : 'Sign in with an approved PIXLECT moderator account to view this browser’s queue.';
@@ -185,7 +183,7 @@
       moderationReports.classList.remove('hidden');
       refreshReportsButton.classList.remove('hidden');
       try {
-        const reports = window.PIXELTubeDemoSocial?.getModeratorReports ? PIXELTubeDemoSocial.getModeratorReports(user) : [];
+        const reports = PIXELTubeDemoSocial.getModeratorReports(user);
         if (!reports.length) {
           moderationReports.textContent = 'No video reports in this browser yet.';
           return;
@@ -232,11 +230,7 @@
               button.textContent = label;
               button.addEventListener('click', () => {
                 try {
-                  if (window.PIXELTubeDemoSocial?.updateModeratorReport) {
-                    PIXELTubeDemoSocial.updateModeratorReport(user, report.id, nextStatus);
-                  } else {
-                    alert('Demo reporting not available.');
-                  }
+                  PIXELTubeDemoSocial.updateModeratorReport(user, report.id, nextStatus);
                   renderModerationReports(user);
                 } catch (error) {
                   moderationAccessMessage.textContent = `Could not update report: ${error.message}`;

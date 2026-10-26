@@ -27,7 +27,7 @@
     ],
 
     storageKey: 'pixeltube:pixlect_user',
-    sessionTTL: 30 * 24 * 60 * 60 * 1000,
+    sessionTTL: 24 * 60 * 60 * 1000,
 
     popupWidth: 520,
     popupHeight: 640
