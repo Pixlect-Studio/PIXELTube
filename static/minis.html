@@ -3,81 +3,90 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>PIXELTube · Shorts</title>
+  <title>PIXELTube · Minis</title>
   <link rel="icon" href="favicon.ico" sizes="any">
-  <script src="settings.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">
   <link rel="stylesheet" href="styles.css?v=auth-iframe-2">
   
   <style>
-    body { background: #000; color: #fff; margin: 0; overflow: hidden; }
-    .shorts-feed {
+    body { background: #000; color: #fff; margin: 0; overflow: hidden; font-family: 'Inter', sans-serif; }
+    
+    /* Vertical Scrolling Container */
+    .minis-feed {
       height: 100vh; width: 100vw;
       overflow-y: scroll; scroll-snap-type: y mandatory;
       scrollbar-width: none; /* Firefox */
     }
-    .shorts-feed::-webkit-scrollbar { display: none; /* Chrome */ }
+    .minis-feed::-webkit-scrollbar { display: none; /* Chrome */ }
     
-    .short-container {
+    /* Individual Video Container */
+    .mini-container {
       height: 100vh; width: 100%;
       scroll-snap-align: start;
       position: relative;
       display: flex; justify-content: center; align-items: center;
-      background: #111;
+      background: #000;
     }
     
-    .short-video {
+    .mini-video {
       height: 100%; max-width: 100%; object-fit: contain;
     }
     
-    /* Sidebar Overlay */
-    .short-ui {
-      position: absolute; right: 16px; bottom: 80px;
-      display: flex; flex-direction: column; align-items: center; gap: 20px;
-    }
-    .short-btn {
-      display: flex; flex-direction: column; align-items: center; gap: 4px;
-      color: #fff; font-size: 12px; cursor: pointer;
-    }
-    .short-btn i { font-size: 28px; text-shadow: 0 2px 8px rgba(0,0,0,0.5); }
-    .short-btn.active i { color: #ef4444; }
-    
-    /* Bottom Info */
-    .short-info {
-      position: absolute; left: 16px; bottom: 20px; width: calc(100% - 80px);
-      z-index: 10;
-    }
-    .short-channel { font-weight: 700; font-size: 16px; margin-bottom: 6px; display: flex; align-items: center; gap: 8px; }
-    .short-title { font-size: 14px; line-height: 1.4; margin-bottom: 8px; }
-    
-    /* Gradient for readability */
-    .short-container::after {
-      content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 200px;
-      background: linear-gradient(to top, rgba(0,0,0,0.8), transparent);
+    /* Overlay Gradient for Readability */
+    .mini-container::after {
+      content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 250px;
+      background: linear-gradient(to top, rgba(0,0,0,0.9), transparent);
       pointer-events: none; z-index: 5;
     }
 
-    /* Header */
-    .shorts-header {
+    /* Sidebar Action Buttons */
+    .mini-ui {
+      position: absolute; right: 16px; bottom: 80px;
+      display: flex; flex-direction: column; align-items: center; gap: 20px; z-index: 10;
+    }
+    .mini-btn {
+      display: flex; flex-direction: column; align-items: center; gap: 6px;
+      color: #fff; font-size: 12px; cursor: pointer; text-decoration: none;
+    }
+    .mini-btn i { font-size: 30px; text-shadow: 0 2px 8px rgba(0,0,0,0.5); }
+    .mini-btn.active i { color: #ef4444; }
+    
+    /* Bottom Info Area */
+    .mini-info {
+      position: absolute; left: 16px; bottom: 20px; width: calc(100% - 80px);
+      z-index: 10;
+    }
+    .mini-channel { font-weight: 700; font-size: 15px; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+    .mini-title { font-size: 14px; line-height: 1.4; margin-bottom: 8px; }
+    .mini-audio { font-size: 12px; color: #ccc; display: flex; align-items: center; gap: 6px; }
+
+    /* Top Header */
+    .minis-header {
       position: fixed; top: 0; left: 0; right: 0; padding: 16px;
       display: flex; justify-content: space-between; align-items: center;
-      z-index: 20; pointer-events: none;
+      z-index: 20; pointer-events: none; background: linear-gradient(to bottom, rgba(0,0,0,0.6), transparent);
     }
-    .shorts-header a, .shorts-header span { pointer-events: auto; }
+    .minis-header a, .minis-header span { pointer-events: auto; }
+    
+    /* Avatar Styles */
+    .avatar-pic {
+      display: inline-grid; place-items: center; border-radius: 50%;
+      color: #fff; font-weight: bold; text-transform: uppercase;
+    }
   </style>
 </head>
 <body>
 
-  <header class="shorts-header">
-    <a href="index.html" class="btn btn-outline" style="border:none; color:#fff; background:rgba(0,0,0,0.5);">
-      <i class="fas fa-arrow-left"></i> Back
+  <header class="minis-header">
+    <a href="index.html" class="btn btn-outline" style="border:none; color:#fff; background:rgba(255,255,255,0.2); border-radius:50%; width:40px; height:40px; padding:0; display:flex; justify-content:center; align-items:center;">
+      <i class="fas fa-arrow-left"></i>
     </a>
-    <span style="font-weight:700; font-size:18px;">Shorts</span>
-    <div style="width: 70px;"></div> <!-- spacer -->
+    <span style="font-weight:800; font-size:18px; letter-spacing:1px;">MINIS</span>
+    <div style="width: 40px;"></div>
   </header>
 
-  <main id="shortsFeed" class="shorts-feed">
-    <!-- Videos will be injected here -->
+  <main id="minisFeed" class="minis-feed">
+    <!-- Videos injected here -->
   </main>
 
   <script src="theme-init.js" defer></script>
@@ -85,66 +94,80 @@
   <script src="js/login.js?v=auth-iframe-3" defer></script>
   <script src="storage.js"></script>
   <script>
-    const feedEl = document.getElementById('shortsFeed');
-    const playerVideos = [];
+    const feedEl = document.getElementById('minisFeed');
+    const targetId = new URLSearchParams(location.search).get('id');
 
-    function getUserId() {
-      const user = window.PIXELTubeAuth?.user;
-      if (!user) return '';
-      return user.PIXELUserUUID || user.pixelUserUUID || user.user_uuid 
-          || user.PIXELUser?.UUID || user.pixelUser?.uuid || user.uuid || user.uid || '';
+    // Helper to generate a colored avatar based on the channel name
+    function getAvatarHtml(name, size = 36) {
+      const colors = ['#f87171', '#fb923c', '#fbbf24', '#a3e635', '#34d399', '#22d3ee', '#60a5fa', '#a78bfa', '#f472b6'];
+      const char = (name || '?').charAt(0).toUpperCase();
+      const color = colors[char.charCodeAt(0) % colors.length];
+      return `<div class="avatar-pic" style="width:${size}px;height:${size}px;background:${color};font-size:${Math.round(size*0.5)}px;">${char}</div>`;
     }
 
-    async function loadShorts() {
+    async function loadMinis() {
       try {
-        const userId = getUserId();
-        const url = `/api/videos/shorts${userId ? '?user_id=' + userId : ''}`;
-        const res = await fetch(url);
+        const user = window.PIXELTubeAuth?.user;
+        const userId = user ? (user.PIXELUserUUID || user.uuid || user.uid) : '';
+        const res = await fetch(`/api/videos/minis${userId ? '?user_id=' + userId : ''}`);
         const data = await res.json();
         
         if (!data.videos || !data.videos.length) {
-          feedEl.innerHTML = '<div style="display:flex; height:100vh; align-items:center; justify-content:center; color:#aaa;">No Shorts available yet.</div>';
+          feedEl.innerHTML = '<div style="display:flex; height:100vh; align-items:center; justify-content:center; color:#aaa;">No Minis available yet.</div>';
           return;
         }
 
-        data.videos.forEach(video => {
-          feedEl.appendChild(createShortElement(video));
+        let targetIndex = 0;
+        data.videos.forEach((video, index) => {
+          if (video.id === targetId) targetIndex = index;
+          feedEl.appendChild(createMiniElement(video));
         });
 
         setupAutoplay();
+
+        // If a specific ID was clicked, jump to it
+        if (targetId) {
+          setTimeout(() => {
+            const targetEl = document.querySelector(`[data-id="${targetId}"]`);
+            if (targetEl) targetEl.scrollIntoView();
+          }, 100);
+        }
+
       } catch (err) {
-        console.error("Failed to load Shorts:", err);
+        console.error("Failed to load Minis:", err);
       }
     }
 
-    function createShortElement(video) {
+    function createMiniElement(video) {
       const div = document.createElement('div');
-      div.className = 'short-container';
-      div.dataset.videoId = video.id;
+      div.className = 'mini-container';
+      div.dataset.id = video.id;
+      
+      const channelName = video.channel || video.creator_name || 'Creator';
       
       div.innerHTML = `
-        <video class="short-video" src="${video.url}" loop playsinline preload="metadata"></video>
+        <video class="mini-video" src="${video.url}" loop playsinline preload="metadata"></video>
         
-        <div class="short-ui">
-          <div class="short-btn" onclick="reactToShort('${video.id}', 'like', this)">
+        <div class="mini-ui">
+          <div class="mini-btn" onclick="reactToMini('${video.id}', 'like', this)">
             <i class="fas fa-heart"></i>
             <span>${video.likes || 0}</span>
           </div>
-          <a href="video_player.html?id=${video.id}" class="short-btn">
+          <a href="video_player.html?id=${video.id}" class="mini-btn">
             <i class="fas fa-comment"></i>
           </a>
-          <div class="short-btn" onclick="shareShort('${video.id}')">
+          <div class="mini-btn" onclick="shareMini('${video.id}')">
             <i class="fas fa-share"></i>
           </div>
         </div>
         
-        <div class="short-info">
-          <div class="short-channel">
-            <div class="avatar" style="width:32px; height:32px;"></div>
-            @${video.channel || video.creator_name || 'Channel'}
+        <div class="mini-info">
+          <div class="mini-channel">
+            ${getAvatarHtml(channelName, 32)}
+            @${channelName}
           </div>
-          <div class="short-title">${video.title}</div>
-          <div style="font-size:12px; color:#aaa;">
+          <div class="mini-title">${video.title}</div>
+          <div class="mini-audio">
             <i class="fas fa-music"></i> Original Audio - ${video.category}
           </div>
         </div>
@@ -154,7 +177,7 @@
 
     // Automatically play the video when it scrolls into view
     function setupAutoplay() {
-      const videos = document.querySelectorAll('.short-video');
+      const videos = document.querySelectorAll('.mini-video');
       
       const observer = new IntersectionObserver((entries) => {
         entries.forEach(entry => {
@@ -170,16 +193,16 @@
       videos.forEach(v => observer.observe(v));
     }
 
-    async function reactToShort(videoId, reaction, btnEl) {
+    async function reactToMini(videoId, reaction, btnEl) {
       try {
         const user = window.PIXELTubeAuth?.user;
-        if (!user) return alert("Sign in to like Shorts!");
+        if (!user) return alert("Sign in with PIXLECT to like Minis!");
         
         btnEl.style.pointerEvents = 'none';
         await PIXELTubeAPI.setReaction(videoId, reaction, user);
         btnEl.classList.toggle('active');
         
-        // Optimistic UI update for the count
+        // Update count visually
         const countSpan = btnEl.querySelector('span');
         let count = parseInt(countSpan.textContent);
         countSpan.textContent = btnEl.classList.contains('active') ? count + 1 : Math.max(0, count - 1);
@@ -191,18 +214,17 @@
       }
     }
 
-    async function shareShort(videoId) {
-      const url = new URL(`video_player.html?id=${videoId}`, location.href).href;
+    async function shareMini(videoId) {
+      const url = new URL(`minis.html?id=${videoId}`, location.href).href;
       try {
-        if (navigator.share) await navigator.share({ title: 'Watch this Short', url });
+        if (navigator.share) await navigator.share({ title: 'Watch this Mini', url });
         else { await navigator.clipboard.writeText(url); alert('Link copied!'); }
       } catch (err) {}
     }
 
     document.addEventListener('DOMContentLoaded', () => {
-      // Wait for Auth to be ready so the AI knows who is watching
       window.PIXELTubeAuth?.ready().then(() => {
-        loadShorts();
+        loadMinis();
       });
     });
   </script>

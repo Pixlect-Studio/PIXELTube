@@ -18,7 +18,15 @@
     document.getElementById('playerTitle').textContent = 'Video unavailable';
   }
 
-  // Injects CSS specifically for Minis to act like YouTube Shorts / TikTok
+  // Helper for Profile Pics
+  function getAvatarHtml(name) {
+    const colors = ['#f87171', '#fb923c', '#fbbf24', '#a3e635', '#34d399', '#22d3ee', '#60a5fa', '#a78bfa', '#f472b6'];
+    const char = (name || '?').charAt(0).toUpperCase();
+    const color = colors[char.charCodeAt(0) % colors.length];
+    return `<div class="avatar-pic" style="width:44px; height:44px; display:grid; place-items:center; border-radius:50%; background:${color}; color:#fff; font-weight:bold; font-size:22px;">${char}</div>`;
+  }
+
+  // Injects CSS specifically for Minis to act like YouTube Shorts
   function applyMiniMode() {
     const style = document.createElement('style');
     style.textContent = `
@@ -29,7 +37,7 @@
       .header { background: #0f0f0f; border-bottom: 1px solid #333; }
       .brand-black { color: #fff !important; }
       .watch-creator .name { color: #fff; }
-      .video-sub, .disclaimer { color: #aaa; }
+      .video-sub, .demo-disclaimer { color: #aaa; }
       .player-description { background: #222; color: #ddd; }
       .comment-item { border-bottom-color: #333; }
       .comment-input input { border-bottom-color: #333; color: #fff; }
@@ -39,7 +47,7 @@
       .site-footer { border-top-color: #333; }
     `;
     document.head.appendChild(style);
-    player.loop = true;
+    player.loop = true; // Shorts loop automatically
   }
 
   async function renderSocial() {
@@ -56,8 +64,6 @@
       
       const like = document.getElementById('likeButton');
       const dislike = document.getElementById('dislikeButton');
-      
-      // If user is signed in, buttons are clickable
       like.disabled = !user;
       dislike.disabled = !user;
       like.classList.toggle('active', social.reaction === 'like');
@@ -71,6 +77,12 @@
         ? `${social.subscriber_count} subscribers`
         : (video.creator_name ? `Created by ${video.creator_name}` : 'Channel');
       
+      // UPDATE PROFILE PIC
+      const creatorAvatar = document.querySelector('.watch-creator .avatar');
+      if (creatorAvatar) {
+        creatorAvatar.outerHTML = getAvatarHtml(video.channel || owner?.name || 'C');
+      }
+
       const subscribe = document.getElementById('subscribeButton');
       subscribe.disabled = !user || !social.canSubscribe;
       subscribe.textContent = social.subscribed ? 'Subscribed' : 'Subscribe';
@@ -105,7 +117,7 @@
       commentBtn.disabled = !user;
       
       document.getElementById('identityMessage').textContent = user
-        ? 'Comments, likes, and subscriptions are securely stored in PIXELTube.'
+        ? 'Comments, likes, and subscriptions are stored by PIXELTube.'
         : 'Sign in with PIXLECT to like, subscribe, or comment.';
     } catch (error) {
       console.error('Could not load video interactions:', error);
@@ -220,13 +232,15 @@
     }
   });
 
+  // THE FIX: Prevent duplicate comments
   document.getElementById('commentForm').addEventListener('submit', async event => {
     event.preventDefault();
     const btn = event.target.querySelector('button[type="submit"]');
     const input = document.getElementById('commentInput');
     
-    if (btn.disabled) return; 
+    if (btn.disabled) return; // Stop if already posting
     
+    // Lock the button
     btn.disabled = true;
     btn.textContent = 'Posting...';
     
@@ -237,6 +251,7 @@
     } catch (error) {
       alert(error.message);
     } finally {
+      // Unlock only if the user is signed in
       btn.disabled = !currentUser();
       btn.textContent = 'Post';
     }
