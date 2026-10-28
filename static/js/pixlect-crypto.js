@@ -1,33 +1,17 @@
 /* =====================================================================
-   PIXLECT Crypto — dual-mode, self-healing
-   Works with BOTH call styles:
-     seal(payload)               ← old code
-     seal(appName, payload)      ← new code
-   Same for open().
+   PIXLECT Crypto — dual-mode, self-healing (Fixed Session Expiry)
    ===================================================================== */
 (function (global) {
   'use strict';
 
   const TAG = '[PixlectCrypto]';
-
-  // ----------------------------------------------------------------
-  // Default shared secret (only used if SHARED_SECRET would be missing).
-  // If you use domain.json app-scoped keys, this is ignored.
-  // ----------------------------------------------------------------
-  const DEFAULT_SECRET =
-    'a6f1b9d2e4c8f7a3b5d1e9c2f4a8b6d3e1f7c9a5b3d1e8f6a4c2b8d9e7f1a3c5';
-
+  const DEFAULT_SECRET = 'a6f1b9d2e4c8f7a3b5d1e9c2f4a8b6d3e1f7c9a5b3d1e8f6a4c2b8d9e7f1a3c5';
   const enc = new TextEncoder();
   const dec = new TextDecoder();
-
-  // Cache: appName (or '__global__') -> CryptoKey
   const _keyCache = new Map();
   let _registry = null;
   let _registryPromise = null;
 
-  // ----------------------------------------------------------------
-  // Registry (domain.json) — optional
-  // ----------------------------------------------------------------
   async function loadRegistry(url) {
     if (_registryPromise) return _registryPromise;
     _registryPromise = fetch(url || '/domain.json', { cache: 'no-store' })
@@ -38,7 +22,6 @@
       .then((j) => { _registry = j; return j; })
       .catch((e) => {
         console.warn(TAG, 'registry load failed:', e.message);
-        // don't reject — callers can fall back
         _registry = null;
         return null;
       });
@@ -50,57 +33,29 @@
     return loadRegistry();
   }
 
-  // ----------------------------------------------------------------
-  // Derive a CryptoKey from a raw string (must yield exactly 32 bytes)
-  // ----------------------------------------------------------------
   async function deriveKey(secretString) {
     if (typeof secretString !== 'string' || secretString.length === 0) {
-      throw new Error(
-        TAG + ' key material missing. Refusing to import empty key. ' +
-        'Check that SHARED_SECRET or publicKey is a non-empty string.'
-      );
+      throw new Error(TAG + ' key material missing.');
     }
-
-    // Hash to exactly 32 bytes — safe for any input length
     let hash;
     try {
       hash = await crypto.subtle.digest('SHA-256', enc.encode(secretString));
     } catch (e) {
       throw new Error(TAG + ' SHA-256 failed: ' + e.message);
     }
-
     const bytes = new Uint8Array(hash);
-    if (bytes.byteLength !== 32) {
-      throw new Error(TAG + ' derived key wrong length: ' + bytes.byteLength);
-    }
-
     try {
-      return await crypto.subtle.importKey(
-        'raw',
-        bytes,
-        { name: 'AES-GCM' },
-        false,
-        ['encrypt', 'decrypt']
-      );
+      return await crypto.subtle.importKey('raw', bytes, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
     } catch (e) {
-      // Turn the cryptic DOMException into something actionable
-      throw new Error(
-        TAG + ' importKey failed: ' + e.message +
-        ' (byteLength=' + bytes.byteLength + ')'
-      );
+      throw new Error(TAG + ' importKey failed: ' + e.message);
     }
   }
 
-  // ----------------------------------------------------------------
-  // Resolve a key for a given app (or global)
-  // ----------------------------------------------------------------
   async function getKeyForApp(appName) {
     const cacheKey = appName || '__global__';
     if (_keyCache.has(cacheKey)) return _keyCache.get(cacheKey);
 
     let secret = null;
-
-    // Try domain.json first
     if (appName) {
       const reg = await getRegistry();
       if (reg) {
@@ -109,21 +64,15 @@
         else if (reg.app && reg.app.name === appName) entry = reg.app;
         if (entry && entry.publicKey) secret = entry.publicKey;
       }
-      if (!secret) {
-        console.warn(TAG, 'no publicKey for "' + appName + '" in domain.json, using DEFAULT_SECRET');
-      }
+      if (!secret) console.warn(TAG, 'no publicKey for "' + appName + '" in domain.json, using DEFAULT_SECRET');
     }
 
     if (!secret) secret = DEFAULT_SECRET;
-
     const key = await deriveKey(secret);
     _keyCache.set(cacheKey, key);
     return key;
   }
 
-  // ----------------------------------------------------------------
-  // Base64url
-  // ----------------------------------------------------------------
   function bytesToB64url(bytes) {
     let s = '';
     for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
@@ -138,16 +87,9 @@
     return bytes;
   }
 
-  // ----------------------------------------------------------------
-  // Core encrypt / decrypt
-  // ----------------------------------------------------------------
   async function encryptWithKey(key, plaintext) {
     const iv = crypto.getRandomValues(new Uint8Array(12));
-    const ct = await crypto.subtle.encrypt(
-      { name: 'AES-GCM', iv },
-      key,
-      enc.encode(plaintext)
-    );
+    const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, enc.encode(plaintext));
     return bytesToB64url(iv) + '.' + bytesToB64url(new Uint8Array(ct));
   }
 
@@ -160,12 +102,9 @@
     return dec.decode(pt);
   }
 
-  // ----------------------------------------------------------------
-  // Replay guard
-  // ----------------------------------------------------------------
   const seenNonces = new Map();
   const NONCE_TTL_MS = 2 * 60 * 1000;
-  const MAX_SKEW_MS  = 60 * 1000;
+  const MAX_SKEW_MS = 60 * 1000;
 
   function newNonce() {
     return bytesToB64url(crypto.getRandomValues(new Uint8Array(16)));
@@ -175,82 +114,50 @@
     for (const [k, exp] of seenNonces) if (exp <= now) seenNonces.delete(k);
   }
 
-  // ----------------------------------------------------------------
-  // Sealed envelope — accepts both calling styles
-  // ----------------------------------------------------------------
   async function seal(a, b) {
     let appName, payload;
-    if (b === undefined) {
-      // seal(payload)
-      appName = null;
-      payload = a;
-    } else {
-      // seal(appName, payload)
-      appName = a || null;
-      payload = b;
-    }
-
-    if (payload === undefined) {
-      throw new Error(TAG + ' seal called with no payload');
-    }
-
+    if (b === undefined) { appName = null; payload = a; } 
+    else { appName = a || null; payload = b; }
+    if (payload === undefined) throw new Error(TAG + ' seal called with no payload');
+    
     pruneNonces();
     const key = await getKeyForApp(appName);
     return {
-      v: 1,
-      app: appName,
-      ts: Date.now(),
-      nonce: newNonce(),
+      v: 1, app: appName, ts: Date.now(), nonce: newNonce(),
       ciphertext: await encryptWithKey(key, JSON.stringify(payload))
     };
   }
 
-  async function open(a, b) {
+  async function open(a, b, opts) {
     let appName, env;
-    if (b === undefined) {
-      // open(envelope)
-      appName = null;
-      env = a;
-    } else {
-      // open(appName, envelope)
-      appName = a || null;
-      env = b;
-    }
+    if (b === undefined) { appName = null; env = a; } 
+    else { appName = a || null; env = b; }
 
     if (!env || typeof env !== 'object') throw new Error(TAG + ' open: bad envelope');
     if (env.v !== 1) throw new Error(TAG + ' open: unsupported version ' + env.v);
-
-    // If caller specified an app, it must match the envelope (if the envelope has one)
-    if (appName && env.app && env.app !== appName) {
-      throw new Error(TAG + ' open: app mismatch (' + env.app + ' vs ' + appName + ')');
-    }
+    if (appName && env.app && env.app !== appName) throw new Error(TAG + ' open: app mismatch');
 
     const effectiveApp = env.app || appName || null;
-
     const now = Date.now();
-    if (Math.abs(now - env.ts) > MAX_SKEW_MS) throw new Error(TAG + ' envelope expired');
+    
+    // FIX: Allow bypassing the 60-second window for saved sessions
+    const maxAge = (opts && typeof opts.maxAge === 'number') ? opts.maxAge : MAX_SKEW_MS;
+    if (Math.abs(now - env.ts) > maxAge) throw new Error(TAG + ' envelope expired');
+    
     pruneNonces();
     if (env.nonce && seenNonces.has(env.nonce)) throw new Error(TAG + ' replay detected');
 
     const key = await getKeyForApp(effectiveApp);
     const json = await decryptWithKey(key, env.ciphertext);
-
     if (env.nonce) seenNonces.set(env.nonce, now + NONCE_TTL_MS);
     return JSON.parse(json);
   }
 
-  // ----------------------------------------------------------------
-  // Session helpers
-  // ----------------------------------------------------------------
   async function saveSession(a, b, c, d) {
-    // saveSession(appName, storageKey, user, ttl)  OR
-    // saveSession(storageKey, user, ttl)
     let appName, storageKey, user, ttl;
-    if (typeof b === 'string') {
-      appName = a; storageKey = b; user = c; ttl = d;
-    } else {
-      appName = null; storageKey = a; user = b; ttl = c;
-    }
+    if (typeof b === 'string') { appName = a; storageKey = b; user = c; ttl = d; } 
+    else { appName = null; storageKey = a; user = b; ttl = c; }
+    
     const payload = { user, exp: Date.now() + (ttl || 24 * 60 * 60 * 1000) };
     const env = await seal(appName, payload);
     localStorage.setItem(storageKey, JSON.stringify(env));
@@ -258,14 +165,15 @@
 
   async function loadSession(a, b) {
     let appName, storageKey;
-    if (typeof b === 'string') { appName = a; storageKey = b; }
+    if (typeof b === 'string') { appName = a; storageKey = b; } 
     else { appName = null; storageKey = a; }
 
     const raw = localStorage.getItem(storageKey);
     if (!raw) return null;
     try {
       const env = JSON.parse(raw);
-      const data = await open(appName, env);
+      // FIX: Pass maxAge: Infinity so it doesn't self-destruct after 60s
+      const data = await open(appName, env, { maxAge: Infinity });
       if (data.exp && Date.now() > data.exp) {
         localStorage.removeItem(storageKey);
         return null;
@@ -278,19 +186,8 @@
     }
   }
 
-  // ----------------------------------------------------------------
-  // Export
-  // ----------------------------------------------------------------
   global.PixlectCrypto = {
-    loadRegistry,
-    getRegistry,
-    seal,
-    open,
-    saveSession,
-    loadSession,
-    newNonce,
-    // exposed for debugging
-    _getKeyForApp: getKeyForApp,
-    _deriveKey: deriveKey
+    loadRegistry, getRegistry, seal, open, saveSession, loadSession, newNonce,
+    _getKeyForApp: getKeyForApp, _deriveKey: deriveKey
   };
 })(typeof window !== 'undefined' ? window : globalThis);

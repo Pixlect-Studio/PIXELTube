@@ -10,68 +10,73 @@
   
   <style>
     body { background: #000; color: #fff; margin: 0; overflow: hidden; font-family: 'Inter', sans-serif; }
+    .minis-feed { height: 100vh; width: 100vw; overflow-y: scroll; scroll-snap-type: y mandatory; scrollbar-width: none; }
+    .minis-feed::-webkit-scrollbar { display: none; }
+    .mini-container { height: 100vh; width: 100%; scroll-snap-align: start; position: relative; display: flex; justify-content: center; align-items: center; background: #000; }
+    .mini-video { height: 100%; max-width: 100%; object-fit: contain; }
+    .mini-container::after { content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 250px; background: linear-gradient(to top, rgba(0,0,0,0.9), transparent); pointer-events: none; z-index: 5; }
     
-    /* Vertical Scrolling Container */
-    .minis-feed {
-      height: 100vh; width: 100vw;
-      overflow-y: scroll; scroll-snap-type: y mandatory;
-      scrollbar-width: none; /* Firefox */
-    }
-    .minis-feed::-webkit-scrollbar { display: none; /* Chrome */ }
-    
-    /* Individual Video Container */
-    .mini-container {
-      height: 100vh; width: 100%;
-      scroll-snap-align: start;
-      position: relative;
-      display: flex; justify-content: center; align-items: center;
-      background: #000;
-    }
-    
-    .mini-video {
-      height: 100%; max-width: 100%; object-fit: contain;
-    }
-    
-    /* Overlay Gradient for Readability */
-    .mini-container::after {
-      content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 250px;
-      background: linear-gradient(to top, rgba(0,0,0,0.9), transparent);
-      pointer-events: none; z-index: 5;
-    }
-
-    /* Sidebar Action Buttons */
-    .mini-ui {
-      position: absolute; right: 16px; bottom: 80px;
-      display: flex; flex-direction: column; align-items: center; gap: 20px; z-index: 10;
-    }
-    .mini-btn {
-      display: flex; flex-direction: column; align-items: center; gap: 6px;
-      color: #fff; font-size: 12px; cursor: pointer; text-decoration: none;
-    }
+    .mini-ui { position: absolute; right: 16px; bottom: 80px; display: flex; flex-direction: column; align-items: center; gap: 20px; z-index: 10; }
+    .mini-btn { display: flex; flex-direction: column; align-items: center; gap: 6px; color: #fff; font-size: 12px; cursor: pointer; text-decoration: none; }
     .mini-btn i { font-size: 30px; text-shadow: 0 2px 8px rgba(0,0,0,0.5); }
     .mini-btn.active i { color: #ef4444; }
     
-    /* Bottom Info Area */
-    .mini-info {
-      position: absolute; left: 16px; bottom: 20px; width: calc(100% - 80px);
-      z-index: 10;
-    }
+    .mini-info { position: absolute; left: 16px; bottom: 20px; width: calc(100% - 80px); z-index: 10; }
     .mini-channel { font-weight: 700; font-size: 15px; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
     .mini-title { font-size: 14px; line-height: 1.4; margin-bottom: 8px; }
     .mini-audio { font-size: 12px; color: #ccc; display: flex; align-items: center; gap: 6px; }
-
-    /* Top Header */
-    .minis-header {
-      position: fixed; top: 0; left: 0; right: 0; padding: 16px;
-      display: flex; justify-content: space-between; align-items: center;
-      z-index: 20; pointer-events: none; background: linear-gradient(to bottom, rgba(0,0,0,0.6), transparent);
-    }
+    .minis-header { position: fixed; top: 0; left: 0; right: 0; padding: 16px; display: flex; justify-content: space-between; align-items: center; z-index: 20; pointer-events: none; background: linear-gradient(to bottom, rgba(0,0,0,0.6), transparent); }
     .minis-header a, .minis-header span { pointer-events: auto; }
+    .avatar-pic { display: inline-grid; place-items: center; border-radius: 50%; color: #fff; font-weight: bold; text-transform: uppercase; }
+
+    /* --- Comment Bottom Sheet --- */
+    .comments-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 90;
+      opacity: 0; pointer-events: none; transition: opacity 0.3s ease;
+    }
+    .comments-overlay.open { opacity: 1; pointer-events: auto; }
     
-    /* Avatar Styles */
-    .avatar-pic {
-      display: inline-grid; place-items: center; border-radius: 50%;
-      color: #fff; font-weight: bold; text-transform: uppercase;
+    .comments-sheet {
+      position: fixed; bottom: 0; left: 0; right: 0; height: 60vh;
+      background: #111; border-radius: 20px 20px 0 0; z-index: 100;
+      display: flex; flex-direction: column; transform: translateY(100%);
+      transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1); 
+      box-shadow: 0 -4px 20px rgba(0,0,0,0.5);
+    }
+    .comments-sheet.open { transform: translateY(0); }
+    .comments-sheet-header {
+      padding: 16px; display: flex; justify-content: space-between;
+      align-items: center; border-bottom: 1px solid #222;
+    }
+    .comments-sheet-close {
+      background: none; border: none; color: #fff; font-size: 24px; cursor: pointer;
+    }
+    .comments-sheet-body {
+      flex: 1; overflow-y: auto; padding: 16px; padding-bottom: 80px;
+    }
+    .comment-item { display: flex; gap: 12px; margin-bottom: 16px; }
+    .comment-avatar {
+      width: 32px; height: 32px; border-radius: 50%; background: #333;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: bold; flex: none;
+    }
+    .comment-content { flex: 1; }
+    .comment-meta { font-size: 13px; color: #aaa; margin-bottom: 4px; }
+    .comment-meta strong { color: #fff; font-size: 14px; margin-right: 8px; }
+    .comment-text { font-size: 14px; line-height: 1.4; }
+    
+    .comments-sheet-footer {
+      position: absolute; bottom: 0; left: 0; right: 0;
+      padding: 12px 16px; background: #111; border-top: 1px solid #222;
+      display: flex; gap: 10px; align-items: center;
+    }
+    .comments-sheet-footer input {
+      flex: 1; background: #222; border: 1px solid #333; color: #fff;
+      border-radius: 20px; padding: 12px 16px; outline: none; font-size: 14px;
+    }
+    .comments-sheet-footer button {
+      background: #ef4444; border: none; color: #fff; border-radius: 20px;
+      padding: 12px 20px; font-weight: bold; cursor: pointer;
     }
   </style>
 </head>
@@ -89,6 +94,22 @@
     <!-- Videos injected here -->
   </main>
 
+  <!-- Comments UI -->
+  <div id="commentsOverlay" class="comments-overlay" onclick="closeComments()"></div>
+  <div id="commentsSheet" class="comments-sheet">
+    <div class="comments-sheet-header">
+      <span id="commentsSheetTitle" style="font-weight:bold;">Comments</span>
+      <button class="comments-sheet-close" onclick="closeComments()">&times;</button>
+    </div>
+    <div class="comments-sheet-body" id="commentsSheetBody">
+      <p style="color:#888; text-align:center;">Loading comments...</p>
+    </div>
+    <form class="comments-sheet-footer" id="commentForm" onsubmit="submitComment(event)">
+      <input type="text" id="commentInput" placeholder="Add a comment..." maxlength="2000" required autocomplete="off">
+      <button type="submit" id="commentSubmitBtn">Post</button>
+    </form>
+  </div>
+
   <script src="theme-init.js" defer></script>
   <script src="js/pixlect-crypto.js" defer></script>
   <script src="js/login.js?v=auth-iframe-3" defer></script>
@@ -96,6 +117,14 @@
   <script>
     const feedEl = document.getElementById('minisFeed');
     const targetId = new URLSearchParams(location.search).get('id');
+
+    // Comment Sheet State
+    let currentVideoId = null;
+    const commentsOverlay = document.getElementById('commentsOverlay');
+    const commentsSheet = document.getElementById('commentsSheet');
+    const commentsSheetBody = document.getElementById('commentsSheetBody');
+    const commentInput = document.getElementById('commentInput');
+    const commentSubmitBtn = document.getElementById('commentSubmitBtn');
 
     // Helper to generate a colored avatar based on the channel name
     function getAvatarHtml(name, size = 36) {
@@ -117,15 +146,12 @@
           return;
         }
 
-        let targetIndex = 0;
         data.videos.forEach((video, index) => {
-          if (video.id === targetId) targetIndex = index;
           feedEl.appendChild(createMiniElement(video));
         });
 
         setupAutoplay();
 
-        // If a specific ID was clicked, jump to it
         if (targetId) {
           setTimeout(() => {
             const targetEl = document.querySelector(`[data-id="${targetId}"]`);
@@ -153,9 +179,10 @@
             <i class="fas fa-heart"></i>
             <span>${video.likes || 0}</span>
           </div>
-          <a href="video_player.html?id=${video.id}" class="mini-btn">
+          <!-- Changed this button to open the comments sheet -->
+          <div class="mini-btn" onclick="openComments('${video.id}')">
             <i class="fas fa-comment"></i>
-          </a>
+          </div>
           <div class="mini-btn" onclick="shareMini('${video.id}')">
             <i class="fas fa-share"></i>
           </div>
@@ -175,21 +202,18 @@
       return div;
     }
 
-    // Automatically play the video when it scrolls into view
     function setupAutoplay() {
       const videos = document.querySelectorAll('.mini-video');
-      
       const observer = new IntersectionObserver((entries) => {
         entries.forEach(entry => {
           const video = entry.target;
           if (entry.isIntersecting) {
-            video.play().catch(() => {}); // catch autoplay block
+            video.play().catch(() => {}); 
           } else {
             video.pause();
           }
         });
-      }, { threshold: 0.6 }); // Trigger when 60% of the video is visible
-
+      }, { threshold: 0.6 });
       videos.forEach(v => observer.observe(v));
     }
 
@@ -202,7 +226,6 @@
         await PIXELTubeAPI.setReaction(videoId, reaction, user);
         btnEl.classList.toggle('active');
         
-        // Update count visually
         const countSpan = btnEl.querySelector('span');
         let count = parseInt(countSpan.textContent);
         countSpan.textContent = btnEl.classList.contains('active') ? count + 1 : Math.max(0, count - 1);
@@ -220,6 +243,109 @@
         if (navigator.share) await navigator.share({ title: 'Watch this Mini', url });
         else { await navigator.clipboard.writeText(url); alert('Link copied!'); }
       } catch (err) {}
+    }
+
+    /* --- Comment System Logic --- */
+    function openComments(videoId) {
+      currentVideoId = videoId;
+      commentsOverlay.classList.add('open');
+      commentsSheet.classList.add('open');
+      loadComments(videoId);
+      
+      // Pause the video playing in the background
+      document.querySelectorAll('.mini-video').forEach(v => v.pause());
+    }
+
+    function closeComments() {
+      commentsOverlay.classList.remove('open');
+      commentsSheet.classList.remove('open');
+      currentVideoId = null;
+      
+      // Resume the video that is currently in view
+      const inView = Array.from(document.querySelectorAll('.mini-video')).find(v => {
+        const rect = v.getBoundingClientRect();
+        return rect.top >= -100 && rect.bottom <= window.innerHeight + 100;
+      });
+      if (inView) inView.play().catch(() => {});
+    }
+
+    async function loadComments(videoId) {
+      commentsSheetBody.innerHTML = '<p style="color:#888; text-align:center;">Loading comments...</p>';
+      try {
+        // Assumes your API follows this structure based on your player code
+        const res = await fetch(`/api/comments?video_id=${videoId}`);
+        const data = await res.json();
+        
+        if (!data.comments || !data.comments.length) {
+          commentsSheetBody.innerHTML = '<p style="color:#888; text-align:center;">No comments yet. Be the first!</p>';
+          return;
+        }
+        
+        commentsSheetBody.innerHTML = data.comments.map(c => {
+          const initial = (c.user || c.username || '?').charAt(0).toUpperCase();
+          return `
+          <div class="comment-item">
+            <div class="comment-avatar">${initial}</div>
+            <div class="comment-content">
+              <div class="comment-meta">
+                <strong>${c.user || c.username || 'Unknown'}</strong>
+                ${new Date(c.ts || c.created_at || Date.now()).toLocaleDateString()}
+              </div>
+              <div class="comment-text">${c.text || c.comment}</div>
+            </div>
+          </div>
+          `;
+        }).join('');
+        
+        // Scroll to bottom
+        commentsSheetBody.scrollTop = commentsSheetBody.scrollHeight;
+        
+      } catch (err) {
+        commentsSheetBody.innerHTML = '<p style="color:#ef4444; text-align:center;">Failed to load comments.</p>';
+      }
+    }
+
+    async function submitComment(e) {
+      e.preventDefault();
+      if (!currentVideoId) return;
+      
+      const user = window.PIXELTubeAuth?.user;
+      if (!user) {
+        alert("Sign in with PIXLECT to comment!");
+        window.PIXELTubeAuth?.login?.();
+        return;
+      }
+      
+      const text = commentInput.value.trim();
+      if (!text) return;
+      
+      commentInput.disabled = true;
+      commentSubmitBtn.disabled = true;
+      
+      try {
+        const res = await fetch('/api/comments', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            video_id: currentVideoId, 
+            text: text, 
+            user: user.username, 
+            uid: user.uid || user.PIXELUserUUID 
+          })
+        });
+        
+        if (!res.ok) throw new Error('Failed to post');
+        
+        commentInput.value = '';
+        await loadComments(currentVideoId);
+        
+      } catch (err) {
+        alert("Failed to post comment. Please try again.");
+      } finally {
+        commentInput.disabled = false;
+        commentSubmitBtn.disabled = false;
+        commentInput.focus();
+      }
     }
 
     document.addEventListener('DOMContentLoaded', () => {
