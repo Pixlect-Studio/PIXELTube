@@ -4,7 +4,7 @@ import re
 import threading
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Any
 
 from storage import get_file_json, save_file_json
@@ -326,4 +326,59 @@ def mark_notifications_read(user_id: str) -> None:
         data = _read_store()
         for notification in data["notifications"].get(user_id, []):
             notification["read"] = True
+        _write_store(data)
+
+
+def check_upload_quota(user_id: str, video_type: str) -> bool:
+    """Check if the user has exceeded their monthly upload limits."""
+    if not user_id:
+        return True 
+        
+    user_id = validate_user_id(user_id)
+    with _STORE_LOCK:
+        data = _read_store()
+        user = _ensure_user(data, user_id)
+        current_month = datetime.now(timezone.utc).strftime("%Y-%m")
+        
+        uploads = user.get("uploads", [])
+        
+        # Count uploads in the current month
+        current_uploads = [u for u in uploads if u.get("month") == current_month]
+        long_count = sum(1 for u in current_uploads if u.get("type") == "long")
+        mini_count = sum(1 for u in current_uploads if u.get("type") == "mini")
+        
+        if video_type == "long" and long_count >= 5:
+            return False
+        if video_type == "mini" and mini_count >= 10:
+            return False
+        return True
+
+
+def record_upload(user_id: str, video_type: str) -> None:
+    """Record a successful upload to track quotas."""
+    if not user_id:
+        return
+        
+    user_id = validate_user_id(user_id)
+    with _STORE_LOCK:
+        data = _read_store()
+        user = _ensure_user(data, user_id)
+        current_month = datetime.now(timezone.utc).strftime("%Y-%m")
+        
+        if "uploads" not in user:
+            user["uploads"] = []
+            
+        user["uploads"].append({
+            "month": current_month,
+            "type": video_type,
+            "timestamp": _now()
+        })
+        
+        # Clean up uploads older than 2 months to keep the database small
+        valid_months = [
+            current_month,
+            (datetime.now(timezone.utc) - timedelta(days=31)).strftime("%Y-%m")
+        ]
+        user["uploads"] = [u for u in user["uploads"] if u.get("month") in valid_months]
+        
         _write_store(data)

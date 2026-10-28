@@ -1,33 +1,13 @@
 /* =====================================================================
    PIXELTube × PIXLECT Account Network — login.js
-   ---------------------------------------------------------------------
-   Usage in any page under /static/html/:
-
-     <script src="/static/js/pixlect-crypto.js"></script>
-     <script src="/static/js/login.js" defer></script>
-
-     <button id="pixlect-login">Sign in with PIXLECT</button>
-     <div id="pixlect-user"></div>
-
-   Public API:
-     window.PIXELTubeAuth.user          -> current user or null
-     window.PIXELTubeAuth.login()       -> open popup
-     window.PIXELTubeAuth.logout()      -> clear session
-     window.PIXELTubeAuth.onChange(fn)  -> subscribe (returns unsubscribe)
-     window.PIXELTubeAuth.ready()       -> Promise<user|null>
    ===================================================================== */
 
 (function () {
   'use strict';
 
-  // ----------------------------------------------------------------
-  // CONFIG
-  // ----------------------------------------------------------------
   const CONFIG = {
     app: 'PIXELTube',
-
     authUrl: 'https://www.account.pixlect-studios.com/?app=PIXELTube&mode=popup',
-
     trustedOrigins: [
       'http://localhost:8000',
       'http://127.0.0.1:8000',
@@ -35,15 +15,9 @@
       'https://www.accounts.pixlect-studios.com',
       'https://www.account.pixlect-studios.com'
     ],
-
     storageKey: 'pixeltube:pixlect_user',
-    // How long a stored session lives (ms). Default 24 h.
-    sessionTTL: 24 * 60 * 60 * 1000
   };
 
-  // ----------------------------------------------------------------
-  // Guard — crypto module must be loaded first
-  // ----------------------------------------------------------------
   function getCrypto() {
     if (!window.PixlectCrypto || typeof window.PixlectCrypto.seal !== 'function') {
       throw new Error(
@@ -54,9 +28,6 @@
     return window.PixlectCrypto;
   }
 
-  // ----------------------------------------------------------------
-  // State
-  // ----------------------------------------------------------------
   let currentUser = null;
   let authFrame = null;
   let authOverlay = null;
@@ -74,13 +45,10 @@
     readyResolve(user);
   }
 
-  // ----------------------------------------------------------------
-  // Session storage (encrypted via PixlectCrypto)
-  // ----------------------------------------------------------------
+  // Use plain localStorage to stop auto-logout on page navigation
   async function saveUser(user) {
     try {
-      const c = getCrypto();
-      await c.saveSession(CONFIG.storageKey, user, CONFIG.sessionTTL);
+      localStorage.setItem(CONFIG.storageKey, JSON.stringify(user));
     } catch (e) {
       console.warn('[PIXELTube] Could not save session:', e);
     }
@@ -89,8 +57,9 @@
 
   async function loadUser() {
     try {
-      const c = getCrypto();
-      return await c.loadSession(CONFIG.storageKey);
+      const raw = localStorage.getItem(CONFIG.storageKey);
+      if (!raw) return null;
+      return JSON.parse(raw);
     } catch (e) {
       console.warn('[PIXELTube] Could not load session:', e);
       return null;
@@ -130,9 +99,6 @@
     });
   }
 
-  // ----------------------------------------------------------------
-  // Popup login
-  // ----------------------------------------------------------------
   function login() {
     if (authFrame) {
       authFrame.contentWindow?.focus();
@@ -182,9 +148,6 @@
     frame.src = CONFIG.authUrl;
   }
 
-  // ----------------------------------------------------------------
-  // Message listener (encrypted payload)
-  // ----------------------------------------------------------------
   window.addEventListener('message', async (ev) => {
     if (ev.data?.type === 'PIXLECT_AUTH_ENC') {
       console.info('[PIXELTube] Received a PIXLECT sign-in response from', ev.origin);
@@ -248,9 +211,6 @@
     }
   });
 
-  // ----------------------------------------------------------------
-  // Hooks
-  // ----------------------------------------------------------------
   function onSuccessfulLogin(user) {
     syncUserProfile(user);
     console.log('[PIXELTube] signed in as', user.username);
@@ -262,12 +222,8 @@
 
   function logout() {
     clearUser();
-    // fetch('/api/pixeltube/logout', { method: 'POST', credentials: 'include' });
   }
 
-  // ----------------------------------------------------------------
-  // Rendering
-  // ----------------------------------------------------------------
   function escapeHtml(s) {
     return String(s ?? '').replace(/[&<>"']/g, (c) => ({
       '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
@@ -327,9 +283,6 @@
     }
   }
 
-  // ----------------------------------------------------------------
-  // Bind the login button (and re-bind if HTML changes later)
-  // ----------------------------------------------------------------
   function bindButton() {
     const btn = document.getElementById('pixlect-login');
     if (!btn || btn.__pixlectBound) return;
@@ -337,16 +290,12 @@
     btn.addEventListener('click', login);
   }
 
-  // ----------------------------------------------------------------
-  // Init
-  // ----------------------------------------------------------------
   async function init() {
     bindButton();
     const saved = await loadUser();
     setUser(saved);
     syncUserProfile(saved);
 
-    // Re-bind if the button is injected later by SPA / lazy render
     if (document.body) {
       const mo = new MutationObserver(bindButton);
       mo.observe(document.body, { childList: true, subtree: true });
@@ -359,18 +308,12 @@
     init();
   }
 
-  // ----------------------------------------------------------------
-  // Public API
-  // ----------------------------------------------------------------
   window.PIXELTubeAuth = {
     get user() { return currentUser; },
-
     login,
     logout,
-
     onChange(fn) {
       listeners.add(fn);
-      // Fire once with current value (may be null before init completes)
       if (readyResolved) {
         try { fn(currentUser); } catch (e) { console.warn(e); }
       } else {
@@ -378,7 +321,6 @@
       }
       return () => listeners.delete(fn);
     },
-
     ready() {
       return readyPromise;
     }

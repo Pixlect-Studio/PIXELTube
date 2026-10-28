@@ -130,8 +130,12 @@ window.PIXELTubeAPI = (() => {
     return requestJson(`/api/users/${encodeURIComponent(idValue)}/notifications/read`, { method: 'POST' });
   }
 
+  // UPDATED: Passes the user_id to the backend so the server can verify
+  // if you are the owner of the video or an Admin before allowing deletion.
   async function deleteVideo(id) {
-    return requestJson(`/api/videos/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    const idValue = userId(window.PIXELTubeAuth?.user);
+    const query = idValue ? `?user_id=${encodeURIComponent(idValue)}` : '';
+    return requestJson(`/api/videos/${encodeURIComponent(id)}${query}`, { method: 'DELETE' });
   }
 
   /**
@@ -156,6 +160,7 @@ window.PIXELTubeAPI = (() => {
     initBody.append('creator_id', creatorId);
     initBody.append('filename', file.name || 'video.mp4');
     initBody.append('content_type', file.type || 'video/mp4');
+    initBody.append('file_size', file.size);
 
     let init;
     try {
