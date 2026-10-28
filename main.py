@@ -23,7 +23,7 @@ from storage import (
 )
 from videos import load_all_videos, save_video_index, get_video
 from statistics import get_video_stats, increment_view, get_platform_stats
-from feed import get_home_feed, get_trending_feed
+from feed import get_home_feed, get_trending_feed, get_ai_shorts
 import social
 
 HOST = os.getenv("HOST", "0.0.0.0")
@@ -95,6 +95,12 @@ def api_list_videos(category: str = None): return {"count": len(get_home_feed(ca
 
 @app.get("/api/videos/trending")
 def api_trending_videos(): return {"count": len(get_trending_feed()), "videos": get_trending_feed()}
+
+@app.get("/api/videos/minis")
+def api_minis_feed(user_id: str = None):
+    """AI-personalized Minis feed."""
+    videos = get_ai_shorts(user_id)
+    return {"count": len(videos), "videos": videos}
 
 @app.get("/api/videos/{video_id}")
 def api_get_video(video_id: str):
@@ -210,13 +216,11 @@ async def api_upload_init(
 ):
     if not BUNNY_ACCESS_KEY: raise HTTPException(500, "Server is not configured for uploads")
     
-    # 1. Enforce the 100MB Limit
     if file_size > 100 * 1024 * 1024:
         raise HTTPException(400, "File exceeds the 100MB upload limit.")
 
     meta = _validate_upload_meta(title, description, category, visibility, channel, creator_name, video_type, creator_id)
     
-    # 2. Enforce Monthly Quotas (Skip for Admin)
     is_admin = meta["creator_id"] and meta["creator_id"].lower() in ADMIN_IDS
     if meta["creator_id"] and not is_admin:
         if not social.check_upload_quota(meta["creator_id"], meta["video_type"]):
@@ -268,7 +272,6 @@ def api_delete_video(video_id: str, user_id: str = None):
     target = next((v for v in videos if v["id"] == video_id), None)
     if not target: raise HTTPException(404, "Video not found")
 
-    # SECURITY CHECK: Only the creator or an Admin can delete
     is_admin = user_id and user_id.lower() in ADMIN_IDS
     is_owner = user_id and target.get("creator_id") == user_id
     
@@ -285,12 +288,10 @@ def api_delete_video(video_id: str, user_id: str = None):
 
 @app.get("/api/admin/stats")
 def api_admin_stats(user_id: str = None):
-    # SECURITY CHECK: Only allow Admins
     if not user_id or user_id.lower() not in ADMIN_IDS:
         raise HTTPException(403, "Admin access required")
     return get_platform_stats()
 
-# Use the NoCacheStaticFiles
 if STATIC_DIR.exists(): 
     app.mount("/", NoCacheStaticFiles(directory=str(STATIC_DIR), html=True), name="static")
 else: 
