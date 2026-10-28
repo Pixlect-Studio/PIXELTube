@@ -1,5 +1,5 @@
 """
-main.py — PIXELTube dev server + API.
+main.py — PIXELTube dev server + API (Vercel Hardened).
 """
 import os
 import re
@@ -26,9 +26,13 @@ from statistics import get_video_stats, increment_view, get_platform_stats
 from feed import get_home_feed, get_trending_feed, get_ai_shorts
 import social
 
+# --- Configuration ---
 HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", "8000"))
-STATIC_DIR = Path(__file__).parent / "static"
+
+# Safely resolve the static directory relative to main.py
+BASE_DIR = Path(__file__).resolve().parent
+STATIC_DIR = BASE_DIR / "static"
 
 TMP_DIR = os.getenv("TMPDIR", "/tmp")
 if not os.path.isdir(TMP_DIR):
@@ -37,22 +41,24 @@ if not os.path.isdir(TMP_DIR):
 ALLOWED_ORIGIN_REGEX = r"https://.*\.vercel\.app"
 _INDEX_LOCK = threading.RLock()
 
-# ==========================================
-# YOUR ADMIN UUID (Lowercased for safety)
-# ==========================================
+# --- Admin Config ---
 ADMIN_IDS = {"dss1y55ukrcceaxyloqi2yco4hl2"}
 
 class NoCacheStaticFiles(StaticFiles):
     async def get_response(self, path: str, scope: Scope) -> Response:
-        response = await super().get_response(path, scope)
-        if response.status_code == 200:
-            if path.endswith(('.html', '.js', '.css')):
+        try:
+            response = await super().get_response(path, scope)
+            if response.status_code == 200 and path.endswith(('.html', '.js', '.css')):
                 response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
                 response.headers['Pragma'] = 'no-cache'
                 response.headers['Expires'] = '0'
-        return response
+            return response
+        except Exception as e:
+            # Log the error but return a 404 to avoid crashing the whole function
+            print(f"Static file error for {path}: {e}")
+            raise HTTPException(status_code=404, detail="File not found")
 
-app = FastAPI(title="PIXELTube Dev Server", version="1.1.0")
+app = FastAPI(title="PIXELTube", version="1.1.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -63,6 +69,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# --- Validation Helper ---
 def _validate_upload_meta(title, description, category, visibility, channel, creator_name, video_type, creator_id):
     channel = str(channel or "").strip()
     creator_name = str(creator_name or "").strip()
@@ -87,9 +94,11 @@ def _validate_upload_meta(title, description, category, visibility, channel, cre
         "creator_id": creator_id or None, "video_type": video_type,
     }
 
+# --- Health Check (Test this first) ---
 @app.get("/api/health")
 def health(): return {"status": "ok", "app": "PIXELTube"}
 
+# --- Routes ---
 @app.get("/api/videos")
 def api_list_videos(category: str = None): return {"count": len(get_home_feed(category=category)), "videos": get_home_feed(category=category)}
 
@@ -98,7 +107,6 @@ def api_trending_videos(): return {"count": len(get_trending_feed()), "videos": 
 
 @app.get("/api/videos/minis")
 def api_minis_feed(user_id: str = None):
-    """AI-personalized Minis feed."""
     videos = get_ai_shorts(user_id)
     return {"count": len(videos), "videos": videos}
 
@@ -215,9 +223,7 @@ async def api_upload_init(
     file_size: int = Form(0)
 ):
     if not BUNNY_ACCESS_KEY: raise HTTPException(500, "Server is not configured for uploads")
-    
-    if file_size > 100 * 1024 * 1024:
-        raise HTTPException(400, "File exceeds the 100MB upload limit.")
+    if file_size > 100 * 1024 * 1024: raise HTTPException(400, "File exceeds the 100MB upload limit.")
 
     meta = _validate_upload_meta(title, description, category, visibility, channel, creator_name, video_type, creator_id)
     
@@ -233,7 +239,15 @@ async def api_upload_init(
     remote_path = f"videos/{video_id}{ext}"
     upload_url = f"{STORAGE_BASE}/{BUNNY_STORAGE_ZONE}/{remote_path}"
     public_url = f"{CDN_BASE.rstrip('/')}/{remote_path}" if CDN_BASE else ""
-    return {"video_id": video_id, "remote_path": remote_path, "upload_url": upload_url, "public_url": public_url, "headers": {"AccessKey": BUNNY_ACCESS_KEY, "Content-Type": content_type or "video/mp4"}, "meta": meta}
+    
+    return {
+        "video_id": video_id, 
+        "remote_path": remote_path, 
+        "upload_url": upload_url, 
+        "public_url": public_url, 
+        "headers": {"AccessKey": BUNNY_ACCESS_KEY, "Content-Type": content_type or "video/mp4"}, 
+        "meta": meta
+    }
 
 @app.post("/api/upload/complete")
 async def api_upload_complete(payload: dict = Body(...)):
@@ -242,7 +256,12 @@ async def api_upload_complete(payload: dict = Body(...)):
     meta_in = payload.get("meta") or {}
     if not re.fullmatch(r"[a-f0-9]{32}", video_id): raise HTTPException(400, "Invalid video_id")
     if not remote_path.startswith(f"videos/{video_id}") or ".." in remote_path: raise HTTPException(400, "Invalid remote_path")
-    meta = _validate_upload_meta(meta_in.get("title", "Untitled"), meta_in.get("description", ""), meta_in.get("category", "General"), meta_in.get("visibility", "Public"), meta_in.get("channel", ""), meta_in.get("creator_name", ""), meta_in.get("video_type", "long"), meta_in.get("creator_id", ""))
+    
+    meta = _validate_upload_meta(
+        meta_in.get("title", "Untitled"), meta_in.get("description", ""), meta_in.get("category", "General"), 
+        meta_in.get("visibility", "Public"), meta_in.get("channel", ""), meta_in.get("creator_name", ""), 
+        meta_in.get("video_type", "long"), meta_in.get("creator_id", "")
+    )
     
     if not file_exists(remote_path): raise HTTPException(400, "Upload not found in storage.")
     
@@ -292,10 +311,14 @@ def api_admin_stats(user_id: str = None):
         raise HTTPException(403, "Admin access required")
     return get_platform_stats()
 
-if STATIC_DIR.exists(): 
-    app.mount("/", NoCacheStaticFiles(directory=str(STATIC_DIR), html=True), name="static")
-else: 
-    print(f"[warn] static/ not found at {STATIC_DIR}; serving API only")
+# --- Static File Mount (Last) ---
+if STATIC_DIR.exists():
+    try:
+        app.mount("/", NoCacheStaticFiles(directory=str(STATIC_DIR), html=True), name="static")
+    except Exception as e:
+        print(f"Warning: Could not mount static files: {e}")
+else:
+    print(f"[warn] Static directory not found at {STATIC_DIR}. UI will not load.")
 
 if __name__ == "__main__":
     import uvicorn
