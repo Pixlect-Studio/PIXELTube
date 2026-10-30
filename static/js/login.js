@@ -1,9 +1,3 @@
-/* =====================================================================
-   PIXELTube × PIXLECT Account Network — login.js  (hardened)
-   ---------------------------------------------------------------------
-   Requires /static/js/pixlect-crypto.js to be loaded first.
-   ===================================================================== */
-
 (function () {
   'use strict';
 
@@ -17,6 +11,7 @@
       'https://www.account.pixlect-studios.com'
     ],
     storageKey: 'pixeltube:pixlect_user',
+    plainKey: 'pixeltube:pixlect_user_plain', // Safe backup key
     legacyKey: 'pixeltube_pixlect',
     sessionTTL: 24 * 60 * 60 * 1000,
     popupWidth: 520,
@@ -60,54 +55,56 @@
   }
 
   async function saveUser(user) {
-    let persisted = false;
+    // 1. Try encrypted save
     try {
       await getCrypto().saveSession(CONFIG.storageKey, user, CONFIG.sessionTTL);
-      const check = await getCrypto().loadSession(CONFIG.storageKey);
-      if (check && check.username === user.username) persisted = true;
     } catch (e) {
-      warn('Encrypted saveSession failed:', e);
+      warn('Encrypted save failed (normal on some Chromebooks/HTTP):', e.message);
     }
 
-    if (!persisted) {
-      try {
-        localStorage.setItem(CONFIG.storageKey, JSON.stringify({
-          v: 1, plain: true, savedAt: Date.now(),
-          expiresAt: Date.now() + CONFIG.sessionTTL, user
-        }));
-        persisted = true;
-        warn('FALLBACK ACTIVE — session saved in PLAIN TEXT.');
-      } catch (e) {
-        warn('Plain fallback also failed:', e);
-      }
+    // 2. ALWAYS save plain text backup under a separate key
+    try {
+      localStorage.setItem(CONFIG.plainKey, JSON.stringify({
+        expiresAt: Date.now() + CONFIG.sessionTTL, 
+        user 
+      }));
+    } catch (e) {
+      warn('Plain backup failed:', e);
     }
+
     setUser(user);
   }
 
   async function loadUser() {
+    // 1. Try encrypted first
     try {
       const u = await getCrypto().loadSession(CONFIG.storageKey);
       if (u) return u;
     } catch (e) {
-      warn('Encrypted loadSession failed:', e);
+      warn('Encrypted load failed:', e.message);
     }
 
+    // 2. Fallback to plain backup
     try {
-      const raw = localStorage.getItem(CONFIG.storageKey);
+      const raw = localStorage.getItem(CONFIG.plainKey);
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (parsed && parsed.plain && parsed.user && parsed.expiresAt > Date.now()) {
+        if (parsed && parsed.user && parsed.expiresAt > Date.now()) {
           return parsed.user;
         }
       }
     } catch (e) {
-      warn('Plain session parse failed:', e);
+      warn('Plain load failed:', e);
     }
     return null;
   }
 
   function clearUser() {
-    try { localStorage.removeItem(CONFIG.storageKey); } catch (e) {}
+    try { 
+      localStorage.removeItem(CONFIG.storageKey); 
+      localStorage.removeItem(CONFIG.plainKey);
+      localStorage.removeItem(CONFIG.legacyKey);
+    } catch (e) {}
     setUser(null);
   }
 
@@ -126,14 +123,6 @@
     authFrame = null;
     try { popup && !popup.closed && popup.close(); } catch (e) {}
     popup = null;
-  }
-
-  function syncUserProfile(user) {
-    if (!user || !window.PIXELTubeAPI?.syncUser) return;
-    const profile = window.PIXELTubeSettings?.get?.() || {};
-    window.PIXELTubeAPI.syncUser(user, profile).catch((error) => {
-      warn('Could not sync profile:', error);
-    });
   }
 
   function login() {
@@ -177,8 +166,10 @@
   window.addEventListener('message', async (ev) => {
     if (!CONFIG.trustedOrigins.includes(ev.origin)) return;
     if (ev.source !== authFrame?.contentWindow && ev.source !== popup) return;
+    
     const data = ev.data;
-    if (!data || data.type !== 'PIXELECT_AUTH_ENC') return; // handles common typo
+    // FIXED THE TYPO HERE: PIXLECT_AUTH_ENC
+    if (!data || data.type !== 'PIXLECT_AUTH_ENC') return;
 
     let payload;
     try {
@@ -197,7 +188,6 @@
 
     if (payload.status === 'success' && payload.user) {
       await saveUser(payload.user);
-      syncUserProfile(payload.user);
       closeAuth();
     } else {
       closeAuth();
@@ -279,7 +269,6 @@
     }
 
     setUser(saved);
-    syncUserProfile(saved);
 
     if (needsMigration && saved) {
       saveUser(saved).catch(() => {});
