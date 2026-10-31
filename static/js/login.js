@@ -1,14 +1,8 @@
 /* =====================================================================
-   PIXELTube × PIXLECT Account Network — login.js  (hardened)
+   PIXELTube × PIXLECT Account Network — login.js  (strict-crypto)
    ---------------------------------------------------------------------
    Requires /static/js/pixlect-crypto.js to be loaded first.
-
-   Include in any page:
-     <script src="/static/js/pixlect-crypto.js"></script>
-     <script src="/static/js/login.js" defer></script>
-
-     <button id="pixlect-login">Sign in with PIXLECT</button>
-     <div id="pixlect-user"></div>
+   Requires /static/domain.json to exist.
    ===================================================================== */
 
 (function () {
@@ -25,6 +19,9 @@
       'https://account.pixlect-studios.com',
       'https://www.account.pixlect-studios.com'
     ],
+
+    // Where the app's domain.json is located
+    domainJsonUrl: '/static/domain.json',
 
     storageKey: 'pixeltube:pixlect_user',
     sessionTTL: 24 * 60 * 60 * 1000,
@@ -50,8 +47,10 @@
   }
 
   // ------------------------------------------------------------------
-  // Crypto module guard
+  // Crypto module & Registry setup
   // ------------------------------------------------------------------
+  let registryReady = false;
+
   function getCrypto() {
     const c = window.PixlectCrypto;
     if (!c || typeof c.seal !== 'function' || typeof c.open !== 'function') {
@@ -61,6 +60,16 @@
       );
     }
     return c;
+  }
+
+  async function ensureRegistry() {
+    if (registryReady) return;
+    try {
+      await getCrypto().loadRegistry(CONFIG.domainJsonUrl);
+      registryReady = true;
+    } catch (e) {
+      throw new Error('Could not load domain.json at ' + CONFIG.domainJsonUrl + ': ' + e.message);
+    }
   }
 
   // ------------------------------------------------------------------
@@ -82,12 +91,13 @@
   }
 
   // ------------------------------------------------------------------
-  // ------------------------------------------------------------------
   // Session (encrypted)
   // ------------------------------------------------------------------
   async function saveUser(user) {
     try {
-      await getCrypto().saveSession(CONFIG.storageKey, user, CONFIG.sessionTTL);
+      await ensureRegistry();
+      // Use strict app-scoped syntax
+      await getCrypto().saveSession(CONFIG.app, CONFIG.storageKey, user, CONFIG.sessionTTL);
     } catch (e) {
       warn('Could not save session:', e);
     }
@@ -96,7 +106,9 @@
 
   async function loadUser() {
     try {
-      return await getCrypto().loadSession(CONFIG.storageKey);
+      await ensureRegistry();
+      // Use strict app-scoped syntax
+      return await getCrypto().loadSession(CONFIG.app, CONFIG.storageKey);
     } catch (e) {
       warn('Could not load session:', e);
       return null;
@@ -137,7 +149,7 @@
   }
 
   // ------------------------------------------------------------------
-  // PIXLECT sign-in
+  // PIXLECT sign-in UI (Iframe + Popup fallback)
   // ------------------------------------------------------------------
   function login() {
     if (authOverlay) {
@@ -192,6 +204,7 @@
   // Message listener
   // ------------------------------------------------------------------
   window.addEventListener('message', async (ev) => {
+    // 1. Check Origin
     if (!CONFIG.trustedOrigins.includes(ev.origin)) {
       if (ev.source === authFrame?.contentWindow || ev.source === popup) {
         window.dispatchEvent(new CustomEvent('pixeltube:autherror', {
@@ -204,12 +217,18 @@
     const data = ev.data;
     if (!data) return;
 
+    // 2. Check Source
     if (ev.source !== authFrame?.contentWindow && ev.source !== popup) return;
+    
+    // 3. Check Type
     if (data.type !== 'PIXLECT_AUTH_ENC') return;
 
+    // 4. Decrypt
     let payload;
     try {
-      payload = await getCrypto().open(data.envelope);
+      await ensureRegistry();
+      // Use strict app-scoped syntax
+      payload = await getCrypto().open(CONFIG.app, data.envelope);
     } catch (e) {
       err('Rejected encrypted auth message:', e.message);
       closeAuth();
@@ -218,6 +237,7 @@
       }));
       return;
     }
+    
     await handlePayload(payload);
   });
 
@@ -327,7 +347,6 @@
     if (!btn || btn.__pixlectBound) return;
     btn.__pixlectBound = true;
 
-    // Pre-flight: verify crypto module is present right now
     try {
       getCrypto();
     } catch (e) {
@@ -353,10 +372,19 @@
       return;
     }
 
-    // 2. Button bound
+    // 2. Registry available?
+    try {
+      await ensureRegistry();
+    } catch (e) {
+      err(e.message);
+      showFatal(document.getElementById('pixlect-login'), e.message);
+      return;
+    }
+
+    // 3. Button bound
     bindButton();
 
-    // Restore session
+    // 4. Restore session
     const saved = await loadUser();
     setUser(saved);
     syncUserProfile(saved);
