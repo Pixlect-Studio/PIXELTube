@@ -1,5 +1,5 @@
 """
-main.py — PIXELTube dev server + API (Vercel Hardened).
+main.py — PIXELTube dev server + API.
 """
 import os
 import re
@@ -12,10 +12,8 @@ from pathlib import Path
 import requests
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Body
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from starlette.staticfiles import StaticFiles
-from starlette.responses import Response
-from starlette.types import Scope
 
 from storage import (
     upload_video, delete_video, file_exists,
@@ -23,16 +21,12 @@ from storage import (
 )
 from videos import load_all_videos, save_video_index, get_video
 from statistics import get_video_stats, increment_view, get_platform_stats
-from feed import get_home_feed, get_trending_feed, get_ai_shorts
+from feed import get_home_feed, get_trending_feed
 import social
 
-# --- Configuration ---
 HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", "8000"))
-
-# Safely resolve the static directory relative to main.py
-BASE_DIR = Path(__file__).resolve().parent
-STATIC_DIR = BASE_DIR / "static"
+STATIC_DIR = Path(__file__).parent / "static"
 
 TMP_DIR = os.getenv("TMPDIR", "/tmp")
 if not os.path.isdir(TMP_DIR):
@@ -41,24 +35,7 @@ if not os.path.isdir(TMP_DIR):
 ALLOWED_ORIGIN_REGEX = r"https://.*\.vercel\.app"
 _INDEX_LOCK = threading.RLock()
 
-# --- Admin Config ---
-ADMIN_IDS = {"dss1y55ukrcceaxyloqi2yco4hl2"}
-
-class NoCacheStaticFiles(StaticFiles):
-    async def get_response(self, path: str, scope: Scope) -> Response:
-        try:
-            response = await super().get_response(path, scope)
-            if response.status_code == 200 and path.endswith(('.html', '.js', '.css')):
-                response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-                response.headers['Pragma'] = 'no-cache'
-                response.headers['Expires'] = '0'
-            return response
-        except Exception as e:
-            # Log the error but return a 404 to avoid crashing the whole function
-            print(f"Static file error for {path}: {e}")
-            raise HTTPException(status_code=404, detail="File not found")
-
-app = FastAPI(title="PIXELTube", version="1.1.0")
+app = FastAPI(title="PIXELTube Dev Server", version="1.1.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -69,7 +46,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- Validation Helper ---
 def _validate_upload_meta(title, description, category, visibility, channel, creator_name, video_type, creator_id):
     channel = str(channel or "").strip()
     creator_name = str(creator_name or "").strip()
@@ -94,21 +70,14 @@ def _validate_upload_meta(title, description, category, visibility, channel, cre
         "creator_id": creator_id or None, "video_type": video_type,
     }
 
-# --- Health Check (Test this first) ---
 @app.get("/api/health")
 def health(): return {"status": "ok", "app": "PIXELTube"}
 
-# --- Routes ---
 @app.get("/api/videos")
 def api_list_videos(category: str = None): return {"count": len(get_home_feed(category=category)), "videos": get_home_feed(category=category)}
 
 @app.get("/api/videos/trending")
 def api_trending_videos(): return {"count": len(get_trending_feed()), "videos": get_trending_feed()}
-
-@app.get("/api/videos/minis")
-def api_minis_feed(user_id: str = None):
-    videos = get_ai_shorts(user_id)
-    return {"count": len(videos), "videos": videos}
 
 @app.get("/api/videos/{video_id}")
 def api_get_video(video_id: str):
@@ -149,11 +118,11 @@ def api_set_video_reaction(video_id: str, payload: dict = Body(...)):
     try:
         user_id = social.validate_user_id(payload.get("user_id"))
         user = social.get_user(user_id)
-        if not user: user = social.upsert_user(user_id, "PIXLECT User")
+        if not user: user = social.upsert_user(user_id, "PIXLECT user")
         
         if video.get("creator_id"):
             social.register_video_owner(video_id, video["creator_id"], video.get("channel") or video.get("creator_name") or "Creator")
-        return social.set_reaction(user_id, user.get("username", "PIXLECT User"), video_id, payload.get("reaction"))
+        return social.set_reaction(user_id, user.get("username", "PIXLECT user"), video_id, payload.get("reaction"))
     except ValueError as exc: raise HTTPException(400, str(exc)) from exc
     except RuntimeError as exc: raise HTTPException(502, str(exc)) from exc
 
@@ -164,11 +133,11 @@ def api_add_video_comment(video_id: str, payload: dict = Body(...)):
     try:
         user_id = social.validate_user_id(payload.get("user_id"))
         user = social.get_user(user_id)
-        if not user: user = social.upsert_user(user_id, "PIXLECT User")
+        if not user: user = social.upsert_user(user_id, "PIXLECT user")
 
         if video.get("creator_id"):
             social.register_video_owner(video_id, video["creator_id"], video.get("channel") or video.get("creator_name") or "Creator")
-        return social.add_comment(user_id, user.get("username", "PIXLECT User"), video_id, payload.get("text"))
+        return social.add_comment(user_id, user.get("username", "PIXLECT user"), video_id, payload.get("text"))
     except ValueError as exc: raise HTTPException(400, str(exc)) from exc
     except RuntimeError as exc: raise HTTPException(502, str(exc)) from exc
 
@@ -181,10 +150,10 @@ def api_toggle_subscription(video_id: str, payload: dict = Body(...)):
     try:
         user_id = social.validate_user_id(payload.get("user_id"))
         user = social.get_user(user_id)
-        if not user: user = social.upsert_user(user_id, "PIXLECT User")
+        if not user: user = social.upsert_user(user_id, "PIXLECT user")
 
         social.register_video_owner(video_id, creator_id, video.get("channel") or video.get("creator_name") or "Creator")
-        return social.toggle_subscription(user_id, user.get("username", "PIXLECT User"), creator_id)
+        return social.toggle_subscription(user_id, user.get("username", "PIXLECT user"), creator_id)
     except ValueError as exc: raise HTTPException(400, str(exc)) from exc
     except RuntimeError as exc: raise HTTPException(502, str(exc)) from exc
 
@@ -209,45 +178,16 @@ def api_mark_notifications_read(user_id: str):
     except RuntimeError as exc: raise HTTPException(502, str(exc)) from exc
 
 @app.post("/api/upload/init")
-async def api_upload_init(
-    title: str = Form("Untitled"), 
-    description: str = Form(""), 
-    category: str = Form("General"), 
-    visibility: str = Form("Public"), 
-    channel: str = Form(...), 
-    creator_name: str = Form(""), 
-    video_type: str = Form("video"), 
-    creator_id: str = Form(""), 
-    filename: str = Form(...), 
-    content_type: str = Form("video/mp4"),
-    file_size: int = Form(0)
-):
+async def api_upload_init(title: str = Form("Untitled"), description: str = Form(""), category: str = Form("General"), visibility: str = Form("Public"), channel: str = Form(...), creator_name: str = Form(""), video_type: str = Form("video"), creator_id: str = Form(""), filename: str = Form(...), content_type: str = Form("video/mp4")):
     if not BUNNY_ACCESS_KEY: raise HTTPException(500, "Server is not configured for uploads")
-    if file_size > 100 * 1024 * 1024: raise HTTPException(400, "File exceeds the 100MB upload limit.")
-
     meta = _validate_upload_meta(title, description, category, visibility, channel, creator_name, video_type, creator_id)
-    
-    is_admin = meta["creator_id"] and meta["creator_id"].lower() in ADMIN_IDS
-    if meta["creator_id"] and not is_admin:
-        if not social.check_upload_quota(meta["creator_id"], meta["video_type"]):
-            limit_name = "Long videos" if meta["video_type"] == "long" else "Minis"
-            raise HTTPException(400, f"You have reached your monthly limit of uploads for {limit_name}.")
-
     ext = os.path.splitext(filename)[1].lower() or ".mp4"
     if not re.fullmatch(r"\.[a-z0-9]{1,8}", ext): ext = ".mp4"
     video_id = uuid.uuid4().hex
     remote_path = f"videos/{video_id}{ext}"
     upload_url = f"{STORAGE_BASE}/{BUNNY_STORAGE_ZONE}/{remote_path}"
     public_url = f"{CDN_BASE.rstrip('/')}/{remote_path}" if CDN_BASE else ""
-    
-    return {
-        "video_id": video_id, 
-        "remote_path": remote_path, 
-        "upload_url": upload_url, 
-        "public_url": public_url, 
-        "headers": {"AccessKey": BUNNY_ACCESS_KEY, "Content-Type": content_type or "video/mp4"}, 
-        "meta": meta
-    }
+    return {"video_id": video_id, "remote_path": remote_path, "upload_url": upload_url, "public_url": public_url, "headers": {"AccessKey": BUNNY_ACCESS_KEY, "Content-Type": content_type or "video/mp4"}, "meta": meta}
 
 @app.post("/api/upload/complete")
 async def api_upload_complete(payload: dict = Body(...)):
@@ -256,69 +196,38 @@ async def api_upload_complete(payload: dict = Body(...)):
     meta_in = payload.get("meta") or {}
     if not re.fullmatch(r"[a-f0-9]{32}", video_id): raise HTTPException(400, "Invalid video_id")
     if not remote_path.startswith(f"videos/{video_id}") or ".." in remote_path: raise HTTPException(400, "Invalid remote_path")
-    
-    meta = _validate_upload_meta(
-        meta_in.get("title", "Untitled"), meta_in.get("description", ""), meta_in.get("category", "General"), 
-        meta_in.get("visibility", "Public"), meta_in.get("channel", ""), meta_in.get("creator_name", ""), 
-        meta_in.get("video_type", "long"), meta_in.get("creator_id", "")
-    )
-    
+    meta = _validate_upload_meta(meta_in.get("title", "Untitled"), meta_in.get("description", ""), meta_in.get("category", "General"), meta_in.get("visibility", "Public"), meta_in.get("channel", ""), meta_in.get("creator_name", ""), meta_in.get("video_type", "long"), meta_in.get("creator_id", ""))
     if not file_exists(remote_path): raise HTTPException(400, "Upload not found in storage.")
-    
     public_url = f"{CDN_BASE.rstrip('/')}/{remote_path}" if CDN_BASE else ""
     video = {"id": video_id, **meta, "url": public_url, "remote_path": remote_path, "created_at": datetime.utcnow().isoformat() + "Z", "status": "Active"}
-    
     with _INDEX_LOCK:
         videos = load_all_videos()
         existing = next((v for v in videos if v.get("id") == video_id), None)
         if existing: return JSONResponse(existing, status_code=200)
         videos.append(video)
         if not save_video_index(videos): raise HTTPException(502, "Video uploaded but its index could not be saved")
-        
     if meta["creator_id"]:
-        try: 
-            social.register_video_owner(video_id, meta["creator_id"], meta["channel"] or meta["creator_name"])
-            is_admin = meta["creator_id"].lower() in ADMIN_IDS
-            if not is_admin:
-                social.record_upload(meta["creator_id"], meta["video_type"])
+        try: social.register_video_owner(video_id, meta["creator_id"], meta["channel"] or meta["creator_name"])
         except (RuntimeError, ValueError) as exc: raise HTTPException(502, f"Creator profile could not be saved: {exc}") from exc
-        
     return JSONResponse(video, status_code=201)
 
 @app.delete("/api/videos/{video_id}")
-def api_delete_video(video_id: str, user_id: str = None):
+def api_delete_video(video_id: str):
     videos = load_all_videos()
     target = next((v for v in videos if v["id"] == video_id), None)
     if not target: raise HTTPException(404, "Video not found")
-
-    is_admin = user_id and user_id.lower() in ADMIN_IDS
-    is_owner = user_id and target.get("creator_id") == user_id
-    
-    if not (is_admin or is_owner):
-        raise HTTPException(403, "You do not have permission to delete this video")
-
     result = delete_video(target["remote_path"])
     if not result["success"]: raise HTTPException(502, f"Bunny delete failed: {result['message']}")
-    
     with _INDEX_LOCK:
         videos = [v for v in load_all_videos() if v["id"] != video_id]
         if not save_video_index(videos): raise HTTPException(502, "Video index could not be saved")
     return {"success": True, "id": video_id}
 
 @app.get("/api/admin/stats")
-def api_admin_stats(user_id: str = None):
-    if not user_id or user_id.lower() not in ADMIN_IDS:
-        raise HTTPException(403, "Admin access required")
-    return get_platform_stats()
+def api_admin_stats(): return get_platform_stats()
 
-# --- Static File Mount (Last) ---
-if STATIC_DIR.exists():
-    try:
-        app.mount("/", NoCacheStaticFiles(directory=str(STATIC_DIR), html=True), name="static")
-    except Exception as e:
-        print(f"Warning: Could not mount static files: {e}")
-else:
-    print(f"[warn] Static directory not found at {STATIC_DIR}. UI will not load.")
+if STATIC_DIR.exists(): app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="static")
+else: print(f"[warn] static/ not found at {STATIC_DIR}; serving API only")
 
 if __name__ == "__main__":
     import uvicorn

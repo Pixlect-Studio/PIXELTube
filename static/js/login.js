@@ -1,23 +1,41 @@
+/* =====================================================================
+   PIXELTube × PIXLECT Account Network — login.js  (hardened)
+   ---------------------------------------------------------------------
+   Requires /static/js/pixlect-crypto.js to be loaded first.
+
+   Include in any page:
+     <script src="/static/js/pixlect-crypto.js"></script>
+     <script src="/static/js/login.js" defer></script>
+
+     <button id="pixlect-login">Sign in with PIXLECT</button>
+     <div id="pixlect-user"></div>
+   ===================================================================== */
+
 (function () {
   'use strict';
 
   const CONFIG = {
     app: 'PIXELTube',
+
     authUrl: 'https://www.account.pixlect-studios.com/?app=PIXELTube&mode=popup',
+
     trustedOrigins: [
       'https://accounts.pixlect-studios.com',
       'https://www.accounts.pixlect-studios.com',
       'https://account.pixlect-studios.com',
       'https://www.account.pixlect-studios.com'
     ],
+
     storageKey: 'pixeltube:pixlect_user',
-    plainKey: 'pixeltube:pixlect_user_plain', // Safe backup key
-    legacyKey: 'pixeltube_pixlect',
     sessionTTL: 24 * 60 * 60 * 1000,
+
     popupWidth: 520,
     popupHeight: 640
   };
 
+  // ------------------------------------------------------------------
+  // Logging
+  // ------------------------------------------------------------------
   const TAG = '[PIXELTubeAuth]';
   function log(...a) { console.log(TAG, ...a); }
   function warn(...a) { console.warn(TAG, ...a); }
@@ -31,14 +49,23 @@
     btn.title = msg;
   }
 
+  // ------------------------------------------------------------------
+  // Crypto module guard
+  // ------------------------------------------------------------------
   function getCrypto() {
     const c = window.PixlectCrypto;
     if (!c || typeof c.seal !== 'function' || typeof c.open !== 'function') {
-      throw new Error('pixlect-crypto.js missing or wrong version.');
+      throw new Error(
+        'pixlect-crypto.js missing or wrong version. ' +
+        'Add <script src="/static/js/pixlect-crypto.js"></script> before login.js.'
+      );
     }
     return c;
   }
 
+  // ------------------------------------------------------------------
+  // State
+  // ------------------------------------------------------------------
   let currentUser = null;
   let popup = null;
   let authFrame = null;
@@ -54,57 +81,30 @@
     readyResolve(u);
   }
 
+  // ------------------------------------------------------------------
+  // ------------------------------------------------------------------
+  // Session (encrypted)
+  // ------------------------------------------------------------------
   async function saveUser(user) {
-    // 1. Try encrypted save
     try {
       await getCrypto().saveSession(CONFIG.storageKey, user, CONFIG.sessionTTL);
     } catch (e) {
-      warn('Encrypted save failed (normal on some Chromebooks/HTTP):', e.message);
+      warn('Could not save session:', e);
     }
-
-    // 2. ALWAYS save plain text backup under a separate key
-    try {
-      localStorage.setItem(CONFIG.plainKey, JSON.stringify({
-        expiresAt: Date.now() + CONFIG.sessionTTL, 
-        user 
-      }));
-    } catch (e) {
-      warn('Plain backup failed:', e);
-    }
-
     setUser(user);
   }
 
   async function loadUser() {
-    // 1. Try encrypted first
     try {
-      const u = await getCrypto().loadSession(CONFIG.storageKey);
-      if (u) return u;
+      return await getCrypto().loadSession(CONFIG.storageKey);
     } catch (e) {
-      warn('Encrypted load failed:', e.message);
+      warn('Could not load session:', e);
+      return null;
     }
-
-    // 2. Fallback to plain backup
-    try {
-      const raw = localStorage.getItem(CONFIG.plainKey);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (parsed && parsed.user && parsed.expiresAt > Date.now()) {
-          return parsed.user;
-        }
-      }
-    } catch (e) {
-      warn('Plain load failed:', e);
-    }
-    return null;
   }
 
   function clearUser() {
-    try { 
-      localStorage.removeItem(CONFIG.storageKey); 
-      localStorage.removeItem(CONFIG.plainKey);
-      localStorage.removeItem(CONFIG.legacyKey);
-    } catch (e) {}
+    try { localStorage.removeItem(CONFIG.storageKey); } catch (e) {}
     setUser(null);
   }
 
@@ -125,6 +125,20 @@
     popup = null;
   }
 
+  function syncUserProfile(user) {
+    if (!user || !window.PIXELTubeAPI?.syncUser) return;
+    const profile = window.PIXELTubeSettings?.get?.() || {};
+    window.PIXELTubeAPI.syncUser(user, profile).catch((error) => {
+      warn('Could not sync the PIXLECT profile to Bunny Storage:', error);
+      window.dispatchEvent(new CustomEvent('pixeltube:profilesyncerror', {
+        detail: { message: error.message }
+      }));
+    });
+  }
+
+  // ------------------------------------------------------------------
+  // PIXLECT sign-in
+  // ------------------------------------------------------------------
   function login() {
     if (authOverlay) {
       authFrame?.contentWindow?.focus();
@@ -134,42 +148,64 @@
     const overlay = document.createElement('div');
     overlay.className = 'pixlect-auth-overlay';
     overlay.innerHTML = `
-      <section class="pixlect-auth-dialog" role="dialog" aria-modal="true">
+      <section class="pixlect-auth-dialog" role="dialog" aria-modal="true" aria-label="Sign in with PIXLECT">
         <div class="pixlect-auth-heading">
           <span>Sign in with PIXLECT</span>
           <div class="pixlect-auth-controls">
             <a class="pixlect-auth-popout" href="${CONFIG.authUrl}" target="pixlect-auth">Open in new window</a>
-            <button type="button" class="pixlect-auth-close">×</button>
+            <button type="button" class="pixlect-auth-close" aria-label="Close sign-in">×</button>
           </div>
         </div>
+        <p class="pixlect-auth-help">If the sign-in panel stays blank, use “Open in new window.”</p>
         <iframe class="pixlect-auth-frame" title="PIXLECT Account sign-in"></iframe>
       </section>
     `;
     const frame = overlay.querySelector('iframe');
-    
     overlay.querySelector('.pixlect-auth-popout').addEventListener('click', (event) => {
       event.preventDefault();
-      popup = window.open(CONFIG.authUrl, 'pixlect-auth', 'width=520,height=640');
+      const width = CONFIG.popupWidth;
+      const height = CONFIG.popupHeight;
+      const left = Math.max(0, window.screenX + (window.outerWidth - width) / 2);
+      const top = Math.max(0, window.screenY + (window.outerHeight - height) / 2);
+      popup = window.open(
+        CONFIG.authUrl,
+        'pixlect-auth',
+        `width=${width},height=${height},left=${left},top=${top},` +
+        'menubar=no,toolbar=no,location=no,status=no,resizable=yes,scrollbars=yes'
+      );
+      if (!popup) {
+        overlay.querySelector('.pixlect-auth-help').textContent =
+          'The browser blocked the sign-in window. Allow popups or continue in the embedded panel.';
+      }
     });
-    
     overlay.querySelector('.pixlect-auth-close').addEventListener('click', () => {
       closeAuth();
       window.dispatchEvent(new CustomEvent('pixeltube:authpopupclosed'));
     });
-    
     document.body.appendChild(overlay);
     authOverlay = overlay;
     authFrame = frame;
     frame.src = CONFIG.authUrl;
   }
 
+  // ------------------------------------------------------------------
+  // Message listener
+  // ------------------------------------------------------------------
   window.addEventListener('message', async (ev) => {
-    if (!CONFIG.trustedOrigins.includes(ev.origin)) return;
-    if (ev.source !== authFrame?.contentWindow && ev.source !== popup) return;
-    
+    if (!CONFIG.trustedOrigins.includes(ev.origin)) {
+      if (ev.source === authFrame?.contentWindow || ev.source === popup) {
+        window.dispatchEvent(new CustomEvent('pixeltube:autherror', {
+          detail: { message: `PIXLECT replied from an unrecognized address (${ev.origin}).` }
+        }));
+      }
+      return;
+    }
+
     const data = ev.data;
-    // FIXED THE TYPO HERE: PIXLECT_AUTH_ENC
-    if (!data || data.type !== 'PIXLECT_AUTH_ENC') return;
+    if (!data) return;
+
+    if (ev.source !== authFrame?.contentWindow && ev.source !== popup) return;
+    if (data.type !== 'PIXLECT_AUTH_ENC') return;
 
     let payload;
     try {
@@ -177,25 +213,63 @@
     } catch (e) {
       err('Rejected encrypted auth message:', e.message);
       closeAuth();
+      window.dispatchEvent(new CustomEvent('pixeltube:autherror', {
+        detail: { message: 'PIXLECT sign-in could not be verified. Please try again.' }
+      }));
       return;
     }
-    
+    await handlePayload(payload);
+  });
+
+  async function handlePayload(payload) {
     if (!payload || payload.app !== CONFIG.app) {
       warn('Ignored payload for wrong app:', payload && payload.app);
       closeAuth();
+      window.dispatchEvent(new CustomEvent('pixeltube:autherror', {
+        detail: { message: 'The sign-in response was for a different app.' }
+      }));
       return;
     }
 
     if (payload.status === 'success' && payload.user) {
       await saveUser(payload.user);
+      onSuccessfulLogin(payload.user);
       closeAuth();
+    } else if (payload.status === 'denied') {
+      onDenied();
+      closeAuth();
+      window.dispatchEvent(new CustomEvent('pixeltube:autherror', {
+        detail: { message: 'PIXLECT sign-in was not completed. Please try again.' }
+      }));
     } else {
+      warn('Unknown payload status:', payload.status);
       closeAuth();
+      window.dispatchEvent(new CustomEvent('pixeltube:autherror', {
+        detail: { message: 'PIXLECT returned an incomplete sign-in response. Please try again.' }
+      }));
     }
-  });
+  }
 
+  // ------------------------------------------------------------------
+  // Hooks
+  // ------------------------------------------------------------------
+  function onSuccessfulLogin(user) {
+    log('signed in as', user.username);
+    syncUserProfile(user);
+  }
+  function onDenied() { log('sign-in denied'); }
+  function logout() {
+    clearUser();
+    // fetch('/api/pixeltube/logout', { method: 'POST', credentials: 'include' });
+  }
+
+  // ------------------------------------------------------------------
+  // Rendering
+  // ------------------------------------------------------------------
   function escapeHtml(s) {
-    return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+    return String(s ?? '').replace(/[&<>"']/g, (c) => ({
+      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+    }[c]));
   }
 
   function iconMarkup(icon, size) {
@@ -206,7 +280,13 @@
     let radius = '28%', clip = 'none';
     if (shape === 'circle') radius = '50%';
     if (shape === 'hex') { radius = '0'; clip = 'polygon(50% 0%,93% 25%,93% 75%,50% 100%,7% 75%,7% 25%)'; }
-    return `<span style="display:inline-grid;place-items:center;width:${size}px;height:${size}px;font-size:${Math.round(size * 0.55)}px;line-height:1;background:${bg};border-radius:${radius};clip-path:${clip};vertical-align:middle;flex:none;">${escapeHtml(emoji)}</span>`;
+    return `<span style="
+      display:inline-grid;place-items:center;
+      width:${size}px;height:${size}px;
+      font-size:${Math.round(size * 0.55)}px;line-height:1;
+      background:${bg};border-radius:${radius};clip-path:${clip};
+      vertical-align:middle;flex:none;
+    ">${escapeHtml(emoji)}</span>`;
   }
 
   function renderUser() {
@@ -223,9 +303,15 @@
               <strong>${escapeHtml(currentUser.username)}</strong><br>
               <small style="color:#8fa0c4">Signed in with PIXLECT</small>
             </div>
-            <button type="button" id="pixlect-logout" style="margin-left:auto;padding:6px 12px;border-radius:8px;border:1px solid #22304f;background:#141d33;color:#e8eefc;font-size:12px;cursor:pointer">Sign out</button>
+            <button type="button" id="pixlect-logout"
+              style="margin-left:auto;padding:6px 12px;border-radius:8px;
+                     border:1px solid #22304f;background:#141d33;
+                     color:#e8eefc;font-size:12px;cursor:pointer">
+              Sign out
+            </button>
           </div>`;
-        document.getElementById('pixlect-logout').onclick = clearUser;
+        const out = document.getElementById('pixlect-logout');
+        if (out) out.onclick = logout;
       }
     } else {
       if (btn) { btn.hidden = false; }
@@ -233,49 +319,52 @@
     }
   }
 
+  // ------------------------------------------------------------------
+  // Button binding
+  // ------------------------------------------------------------------
   function bindButton() {
     const btn = document.getElementById('pixlect-login');
     if (!btn || btn.__pixlectBound) return;
     btn.__pixlectBound = true;
-    try { getCrypto(); } catch (e) { showFatal(btn, e.message); return; }
+
+    // Pre-flight: verify crypto module is present right now
+    try {
+      getCrypto();
+    } catch (e) {
+      showFatal(btn, e.message);
+      return;
+    }
+
     btn.addEventListener('click', login);
   }
 
+  // ------------------------------------------------------------------
+  // Init
+  // ------------------------------------------------------------------
   async function init() {
     log('initializing…');
-    try { getCrypto(); } catch (e) {
+
+    // 1. Crypto available?
+    try {
+      getCrypto();
+    } catch (e) {
       err(e.message);
       showFatal(document.getElementById('pixlect-login'), e.message);
       return;
     }
 
+    // 2. Button bound
     bindButton();
 
-    let saved = await loadUser();
-    let needsMigration = false;
-
-    if (!saved) {
-      try {
-        const legacy = localStorage.getItem(CONFIG.legacyKey);
-        if (legacy) {
-          const parsed = JSON.parse(legacy);
-          if (parsed && parsed.username) {
-            saved = parsed;
-            needsMigration = true;
-            log('Migrating legacy session for', parsed.username);
-          }
-        }
-      } catch (e) {}
-    }
-
+    // Restore session
+    const saved = await loadUser();
     setUser(saved);
+    syncUserProfile(saved);
 
-    if (needsMigration && saved) {
-      saveUser(saved).catch(() => {});
-    }
-
+    // Re-bind if button injected later
     if (document.body) {
-      new MutationObserver(bindButton).observe(document.body, { childList: true, subtree: true });
+      const mo = new MutationObserver(bindButton);
+      mo.observe(document.body, { childList: true, subtree: true });
     }
 
     log('ready. user =', currentUser ? currentUser.username : 'none');
@@ -287,16 +376,24 @@
     init();
   }
 
+  // ------------------------------------------------------------------
+  // Public API
+  // ------------------------------------------------------------------
   window.PIXELTubeAuth = {
     get user() { return currentUser; },
     login,
-    logout: clearUser,
+    logout,
     onChange(fn) {
       listeners.add(fn);
-      if (readyResolved) { try { fn(currentUser); } catch (e) {} }
-      else { readyPromise.then((u) => { try { fn(u); } catch (e) {} }); }
+      if (readyResolved) {
+        try { fn(currentUser); } catch (e) { warn(e); }
+      } else {
+        readyPromise.then((u) => { try { fn(u); } catch (e) { warn(e); } });
+      }
       return () => listeners.delete(fn);
     },
     ready() { return readyPromise; }
   };
+
+  window.addEventListener('pixeltube:profilesettingschange', () => syncUserProfile(currentUser));
 })();

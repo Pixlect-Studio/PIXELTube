@@ -40,7 +40,7 @@
         <img class="brand-icon" src="favicon.ico" alt="">
         <span class="brand-red">PIXEL</span><span class="brand-black">Tube</span>
       </a>
-      <span id="adminBadge" class="badge hidden" style="background:#dc2626; color:#fff;">ADMIN</span>
+      <span class="badge">ADMIN</span>
     </div>
 
     <div class="header-right">
@@ -57,60 +57,59 @@
 
   <!-- MAIN CONTENT -->
   <main class="main" style="max-width: 1280px; margin: 0 auto; padding-top: 32px;">
-    
-    <!-- ACCESS DENIED STATE -->
-    <div id="accessDenied" class="empty-state">
-      <i class="fas fa-lock"></i>
-      <h2>Admin Access Required</h2>
-      <p>You must be signed in with an authorized PIXLECT account to view this page.</p>
-    </div>
-
-    <!-- SECURE ADMIN DASHBOARD -->
-    <div id="adminDashboard" class="hidden">
-      <h1 style="font-size: 24px; font-weight: 700; margin-bottom: 24px;">Admin Overview</h1>
-      
-      <div class="stats-grid four" style="margin-bottom: 32px;">
-        <div class="stat-card">
-          <p class="stat-label">Total Users</p>
-          <p id="adminUserCount" class="stat-value">—</p>
-        </div>
-        <div class="stat-card">
-          <p class="stat-label">Total Videos</p>
-          <p id="adminVideoCount" class="stat-value">—</p>
-        </div>
-        <div class="stat-card">
-          <p class="stat-label">Recorded Views</p>
-          <p id="adminViewCount" class="stat-value">—</p>
-        </div>
-        <div class="stat-card">
-          <p class="stat-label">Storage Used</p>
-          <p id="adminStorageUsed" class="stat-value">—</p>
-        </div>
+    <h1 style="font-size: 24px; font-weight: 700; margin-bottom: 24px;">Admin Overview</h1>
+    <p class="legal-notice" style="margin-bottom: 24px;">PIXELTube has no server-verified admin roles. The report queue below is a browser-local demo and does not sync between devices or browsers.</p>
+    <div class="stats-grid four" style="margin-bottom: 32px;">
+      <div class="stat-card">
+        <p class="stat-label">Total Users</p>
+        <p class="stat-value">Unavailable</p>
       </div>
-
-      <section>
-        <div class="flex justify-between items-center" style="margin-bottom: 12px;">
-          <h2 style="font-size: 18px; font-weight: 600;">Manage Videos</h2>
-          <button id="refreshAdminVideos" class="btn btn-outline" type="button">Refresh</button>
-        </div>
-        <div class="table-wrap">
-          <table class="admin-table">
-            <thead>
-              <tr>
-                <th>Video Title</th>
-                <th>Uploader</th>
-                <th>Upload Date</th>
-                <th>Category</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody id="adminVideos">
-              <tr><td colspan="5">Loading videos…</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
+      <div class="stat-card">
+        <p class="stat-label">Total Videos</p>
+        <p id="adminVideoCount" class="stat-value">—</p>
+      </div>
+      <div class="stat-card">
+        <p class="stat-label">Recorded Views</p>
+        <p id="adminViewCount" class="stat-value">—</p>
+      </div>
+      <div class="stat-card">
+        <p class="stat-label">System Storage</p>
+        <p class="stat-value">Unavailable</p>
+      </div>
     </div>
+
+    <section>
+      <div class="flex justify-between items-center" style="margin-bottom: 12px;">
+        <h2 style="font-size: 18px; font-weight: 600;">Videos</h2>
+        <button id="refreshAdminVideos" class="btn btn-outline" type="button">Refresh</button>
+      </div>
+      <div class="table-wrap">
+        <table class="admin-table">
+          <thead>
+            <tr>
+              <th>Video Title</th>
+              <th>Upload Date</th>
+              <th>Category</th>
+              <th>Visibility</th>
+            </tr>
+          </thead>
+          <tbody id="adminVideos"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="moderationSection" class="moderation-section">
+      <div class="flex justify-between items-center" style="margin-bottom: 12px;">
+        <div>
+          <h2 style="font-size: 18px; font-weight: 600;">Video reports</h2>
+          <p id="moderationAccessMessage" class="demo-disclaimer" role="status" aria-live="polite">
+            Sign in with an approved PIXLECT moderator account to view this browser's queue.
+          </p>
+        </div>
+        <button id="refreshReports" class="btn btn-outline hidden" type="button">Refresh reports</button>
+      </div>
+      <div id="moderationReports" class="moderation-reports hidden" aria-live="polite"></div>
+    </section>
   </main>
 
   <footer class="site-footer">
@@ -123,130 +122,142 @@
   <script src="theme-init.js" defer></script>
   <script src="js/pixlect-crypto.js" defer></script>
   <script src="js/login.js?v=auth-iframe-3" defer></script>
+  <script src="community.js"></script>
   <script src="storage.js"></script>
-  
   <script>
-    // Your PIXLECT UUID (Must match the backend ADMIN_IDS in main.py)
-    const MY_UUID = "dss1y55ukrcceaxyloqi2yco4hl2"; 
-    
     const adminVideos = document.getElementById('adminVideos');
-    const accessDenied = document.getElementById('accessDenied');
-    const adminDashboard = document.getElementById('adminDashboard');
-    const adminBadge = document.getElementById('adminBadge');
+    const moderationAccessMessage = document.getElementById('moderationAccessMessage');
+    const moderationReports = document.getElementById('moderationReports');
+    const refreshReportsButton = document.getElementById('refreshReports');
 
-    function getUserId(user) {
-      if (!user) return '';
-      const id = user.PIXELUserUUID || user.pixelUserUUID || user.pixel_user_uuid 
-              || user.user_uuid || user.PIXELUser?.UUID || user.pixelUser?.uuid 
-              || user.uuid || user.uid;
-      return typeof id === 'string' ? id.toLowerCase() : '';
-    }
-
-    async function loadAdminData() {
-      const user = window.PIXELTubeAuth?.user;
-      const userId = getUserId(user);
-
-      // 1. Security Check
-      if (userId !== MY_UUID) {
-        accessDenied.classList.remove('hidden');
-        adminDashboard.classList.add('hidden');
-        adminBadge.classList.add('hidden');
-        return;
-      }
-
-      // User is Admin
-      accessDenied.classList.add('hidden');
-      adminDashboard.classList.remove('hidden');
-      adminBadge.classList.remove('hidden');
-
-      // 2. Load Secure Stats
-      try {
-        const statsRes = await fetch(`/api/admin/stats?user_id=${userId}`);
-        if (statsRes.ok) {
-          const stats = await statsRes.json();
-          document.getElementById('adminUserCount').textContent = stats.total_users || '—';
-          document.getElementById('adminVideoCount').textContent = stats.total_videos || '0';
-          document.getElementById('adminViewCount').textContent = stats.daily_views || '—';
-          document.getElementById('adminStorageUsed').textContent = stats.storage_used_tb ? `${stats.storage_used_tb} TB` : '—';
-        }
-      } catch (err) {
-        console.error("Failed to load stats:", err);
-      }
-
-      // 3. Load Videos Table
-      adminVideos.innerHTML = '<tr><td colspan="5">Loading videos…</td></tr>';
+    async function loadAdminVideos() {
+      adminVideos.innerHTML = '<tr><td colspan="4">Loading videos…</td></tr>';
       try {
         const videos = await PIXELTubeAPI.listVideos();
-        
-        // Update video count if stats endpoint failed
-        if (document.getElementById('adminVideoCount').textContent === '—') {
-          document.getElementById('adminVideoCount').textContent = videos.length;
-        }
-
+        document.getElementById('adminVideoCount').textContent = videos.length;
+        document.getElementById('adminViewCount').textContent =
+          videos.reduce((total, video) => total + (Number(video.views) || 0), 0).toLocaleString();
         adminVideos.replaceChildren();
         if (!videos.length) {
-          adminVideos.innerHTML = '<tr><td colspan="5">No videos uploaded yet.</td></tr>';
+          adminVideos.innerHTML = '<tr><td colspan="4">No videos yet.</td></tr>';
           return;
         }
-
         videos.forEach(video => {
           const row = document.createElement('tr');
-          
-          // Title
-          const titleCell = document.createElement('td');
-          titleCell.textContent = video.title || 'Untitled';
-          titleCell.style.fontWeight = '600';
-          
-          // Uploader
-          const uploaderCell = document.createElement('td');
-          uploaderCell.textContent = video.channel || video.creator_name || 'Unknown';
-
-          // Date
-          const dateCell = document.createElement('td');
-          dateCell.textContent = video.created_at ? new Date(video.created_at).toLocaleDateString() : '—';
-
-          // Category
-          const catCell = document.createElement('td');
-          catCell.textContent = video.category || 'General';
-
-          // Actions
-          const actionCell = document.createElement('td');
-          const deleteBtn = document.createElement('button');
-          deleteBtn.className = 'btn-sm danger';
-          deleteBtn.innerHTML = '<i class="fas fa-trash"></i> Delete';
-          deleteBtn.onclick = async () => {
-            if (!confirm(`Are you sure you want to delete "${video.title}"? This cannot be undone.`)) return;
-            deleteBtn.disabled = true;
-            deleteBtn.innerHTML = 'Deleting...';
-            try {
-              await PIXELTubeAPI.deleteVideo(video.id);
-              row.remove();
-            } catch (err) {
-              alert('Failed to delete: ' + err.message);
-              deleteBtn.disabled = false;
-              deleteBtn.innerHTML = '<i class="fas fa-trash"></i> Delete';
-            }
-          };
-          actionCell.appendChild(deleteBtn);
-
-          row.append(titleCell, uploaderCell, dateCell, catCell, actionCell);
+          [video.title || 'Untitled', video.created_at ? new Date(video.created_at).toLocaleDateString() : '—',
+            video.category || 'General', video.visibility || 'Public'].forEach(value => {
+            const cell = document.createElement('td');
+            cell.textContent = value;
+            row.appendChild(cell);
+          });
           adminVideos.appendChild(row);
         });
       } catch (error) {
-        adminVideos.innerHTML = `<tr><td colspan="5" style="color:red;">Could not load videos: ${error.message}</td></tr>`;
+        document.getElementById('adminVideoCount').textContent = '—';
+        document.getElementById('adminViewCount').textContent = '—';
+        adminVideos.innerHTML = '<tr><td colspan="4">Could not load videos.</td></tr>';
+        console.error('Failed to load admin video list:', error);
       }
     }
 
-    document.getElementById('refreshAdminVideos').addEventListener('click', loadAdminData);
+    const reportReasons = {
+      spam: 'Spam or misleading content',
+      harassment: 'Harassment or hateful content',
+      harmful: 'Violent or harmful content',
+      copyright: 'Copyright concern',
+      other: 'Something else',
+    };
 
-    // Initialize when Auth is ready
-    document.addEventListener('DOMContentLoaded', () => {
-      window.PIXELTubeAuth?.ready().then(() => {
-        loadAdminData();
-      });
-      
-      window.PIXELTubeAuth?.onChange(() => {
-        loadAdminData();
+    function renderModerationReports(user) {
+      moderationReports.replaceChildren();
+      if (!PIXELTubeDemoSocial.isModerator(user)) {
+        moderationAccessMessage.textContent = user
+          ? 'This PIXLECT account is not on the configured moderator list.'
+          : 'Sign in with an approved PIXLECT moderator account to view this browser’s queue.';
+        moderationReports.classList.add('hidden');
+        refreshReportsButton.classList.add('hidden');
+        return;
+      }
+
+      moderationAccessMessage.textContent = 'Reports saved in this browser are visible to the configured moderator accounts here.';
+      moderationReports.classList.remove('hidden');
+      refreshReportsButton.classList.remove('hidden');
+      try {
+        const reports = PIXELTubeDemoSocial.getModeratorReports(user);
+        if (!reports.length) {
+          moderationReports.textContent = 'No video reports in this browser yet.';
+          return;
+        }
+
+        reports.forEach(report => {
+          const card = document.createElement('article');
+          card.className = 'moderation-report';
+
+          const header = document.createElement('div');
+          header.className = 'moderation-report-header';
+          const title = document.createElement('h3');
+          title.textContent = report.videoTitle || 'Untitled';
+          const status = document.createElement('span');
+          status.className = `report-status-badge ${report.status}`;
+          status.textContent = report.status;
+          header.append(title, status);
+
+          const reason = document.createElement('p');
+          reason.className = 'moderation-report-reason';
+          reason.textContent = reportReasons[report.reason] || 'Other';
+
+          const meta = document.createElement('p');
+          meta.className = 'demo-disclaimer';
+          meta.textContent = `Reported by ${report.reporterName || 'Guest'} · ${new Date(report.createdAt).toLocaleString()}`;
+
+          const details = document.createElement('p');
+          details.className = 'moderation-report-details';
+          details.textContent = report.details || 'No additional details provided.';
+
+          const link = document.createElement('a');
+          link.className = 'btn btn-outline';
+          link.href = `video_player.html?id=${encodeURIComponent(report.videoId)}`;
+          link.textContent = 'Review video';
+
+          const actions = document.createElement('div');
+          actions.className = 'moderation-report-actions';
+          actions.appendChild(link);
+          if (report.status === 'pending') {
+            [['reviewed', 'Mark reviewed'], ['dismissed', 'Dismiss report']].forEach(([nextStatus, label]) => {
+              const button = document.createElement('button');
+              button.type = 'button';
+              button.className = 'btn btn-outline';
+              button.textContent = label;
+              button.addEventListener('click', () => {
+                try {
+                  PIXELTubeDemoSocial.updateModeratorReport(user, report.id, nextStatus);
+                  renderModerationReports(user);
+                } catch (error) {
+                  moderationAccessMessage.textContent = `Could not update report: ${error.message}`;
+                }
+              });
+              actions.appendChild(button);
+            });
+          }
+          card.append(header, reason, meta, details, actions);
+          moderationReports.appendChild(card);
+        });
+      } catch (error) {
+        moderationAccessMessage.textContent = `Could not load reports: ${error.message}`;
+        console.error('Failed to load local moderation reports:', error);
+      }
+    }
+
+    document.getElementById('refreshAdminVideos').addEventListener('click', loadAdminVideos);
+    refreshReportsButton.addEventListener('click', () => renderModerationReports(window.PIXELTubeAuth?.user));
+    document.addEventListener('DOMContentLoaded', loadAdminVideos);
+    window.addEventListener('load', () => {
+      window.PIXELTubeAuth?.onChange(renderModerationReports);
+      window.addEventListener('pixeltube:demosocialchange', () => renderModerationReports(window.PIXELTubeAuth?.user));
+      window.addEventListener('storage', event => {
+        if (event.key === 'pixeltube:demo-social:v1') {
+          renderModerationReports(window.PIXELTubeAuth?.user);
+        }
       });
     });
   </script>

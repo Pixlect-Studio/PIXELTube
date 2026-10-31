@@ -47,7 +47,7 @@
 
     <div class="search-wrap">
       <div class="search-box">
-        <input id="videoSearch" type="search" placeholder="Search videos and channels" aria-label="Search videos">
+        <input id="videoSearch" type="search" placeholder="Search videos" aria-label="Search videos">
         <button id="searchButton" type="button" aria-label="Search"><i class="fas fa-search"></i></button>
       </div>
       <button id="voiceSearchButton" class="mic-btn" type="button" aria-label="Voice search"><i class="fas fa-microphone"></i></button>
@@ -81,10 +81,9 @@
         <a href="index.html" class="nav-item">
           <i class="fas fa-home"></i><span class="nav-label">Home</span>
         </a>
-        <!-- Minis Link -->
-        <a href="minis.html" class="nav-item" style="color: var(--brand); font-weight: 700;">
+        <button type="button" class="nav-item" data-feed="minis" title="Browse PIXELTube Minis">
           <i class="fas fa-bolt"></i><span class="nav-label">Minis</span>
-        </a>
+        </button>
         <button type="button" class="nav-item" data-feed="subscriptions" title="Your subscriptions">
           <i class="fas fa-users"></i><span class="nav-label">Subscriptions</span>
         </button>
@@ -257,14 +256,6 @@
       return window.PIXELTubeAuth?.user || null;
     }
 
-    // Helper for Profile Pics
-    function getAvatarHtml(name, sizeClass = '') {
-      const colors = ['#f87171', '#fb923c', '#fbbf24', '#a3e635', '#34d399', '#22d3ee', '#60a5fa', '#a78bfa', '#f472b6'];
-      const char = (name || '?').charAt(0).toUpperCase();
-      const color = colors[char.charCodeAt(0) % colors.length];
-      return `<div class="avatar ${sizeClass}" style="background:${color}; color:#fff; display:grid; place-items:center; font-weight:bold; font-size:16px;">${char}</div>`;
-    }
-
     let watchSocialLoadId = 0;
     async function renderWatchSocial() {
       if (!currentVideo) return;
@@ -300,12 +291,6 @@
         subscribeButton.title = user
           ? (social.creator ? 'Saved to PIXELTube storage' : 'This creator is not connected to a PIXLECT ID')
           : 'Sign in with PIXLECT to subscribe';
-
-        // Update Modal Avatar
-        const watchAvatar = document.querySelector('.watch-creator .avatar');
-        if (watchAvatar) {
-            watchAvatar.outerHTML = getAvatarHtml(social.creator?.name || 'C', 'lg');
-        }
 
         document.getElementById('commentCount').textContent = `· ${social.comments.length}`;
         const commentsList = document.getElementById('commentsList');
@@ -546,11 +531,7 @@
       const card = document.createElement('a');
       card.className = 'video-card';
       card.dataset.videoId = video.id;
-      
-      // If it's a Mini, go to Minis view. Else, go to standard player.
-      const isMini = video.video_type === 'mini' || video.video_type === 'short';
-      card.href = isMini ? `minis.html?id=${encodeURIComponent(video.id)}` : `video_player.html?id=${encodeURIComponent(video.id)}`;
-      
+      card.href = `video_player.html?id=${encodeURIComponent(video.id)}`;
       card.setAttribute('aria-label', `Watch ${video.title || 'Untitled'}`);
 
       const thumbClass = video.url ? 'video-thumb has-media' : 'video-thumb';
@@ -558,18 +539,16 @@
         ? `<video src="${video.url}" preload="metadata" muted></video>`
         : '';
 
-      const channelName = video.channel || video.creator_name || 'Channel not set';
-
       card.innerHTML = `
         <div class="${thumbClass}">${thumbInner}</div>
         <div class="video-meta">
-          ${getAvatarHtml(channelName)}
+          <div class="avatar"></div>
           <div class="min-w-0">
             <h3 class="video-title">${escapeHtml(video.title || 'Untitled')}</h3>
             <p class="video-sub">
               ${escapeHtml(video.category || 'General')}
-              ${isMini ? '<span class="dot">·</span> Mini' : ''}
-              <span class="dot">·</span> ${escapeHtml(channelName)}
+              ${video.video_type === 'mini' || video.video_type === 'short' ? '<span class="dot">·</span> Mini' : ''}
+              <span class="dot">·</span> ${escapeHtml(video.channel || 'Channel not set')}
               <span class="dot">·</span> <span class="video-views">${Number(video.views) || 0} views</span>
               <span class="dot">·</span> ${formatDate(video.created_at)}
             </p>
@@ -611,8 +590,7 @@
           || (feedIds && feedIds.has(video.id)))
         &&
         (activeCategory === 'all' || (video.category || 'General').toLocaleLowerCase() === activeCategory.toLocaleLowerCase())
-        // SEARCH INCLUDES CHANNEL AND CREATOR NAMES
-        && (!query || `${video.title || ''} ${video.description || ''} ${video.category || ''} ${video.channel || ''} ${video.creator_name || ''}`.toLocaleLowerCase().includes(query))
+        && (!query || `${video.title || ''} ${video.description || ''} ${video.category || ''}`.toLocaleLowerCase().includes(query))
       );
       grid.innerHTML = '';
       if (!videos.length) {
@@ -634,9 +612,7 @@
         await renderVideos();
         const requestedVideo = new URLSearchParams(location.search).get('video');
         const sharedVideo = requestedVideo && allVideos.find(video => video.id === requestedVideo);
-        if (sharedVideo && sharedVideo.video_type !== 'mini' && sharedVideo.video_type !== 'short') {
-          openWatchModal(sharedVideo);
-        }
+        if (sharedVideo) openWatchModal(sharedVideo);
       } catch (err) {
         console.error('Failed to load videos:', err);
         grid.innerHTML = `

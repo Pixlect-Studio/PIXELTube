@@ -4,9 +4,11 @@
   "authDomain": "https://accounts.pixlect-studios.com",
   "app": {
     "name": "PIXELTube",
-    "displayName": "PIXELTube",
-    "origin": "https://pixeltube.example.com",
-    "publicKey": "pk_PIXELTube_v1_9f3a7e1c4b8d2f6a5e9c3b7d1f4a8e2c6b9d3f7a1e5c8b2d4f6a9e3c7b1d5f8a",
-    "scopes": ["username", "icon", "uid"]
+    "origins": [
+      "http://localhost:8000",
+      "http://127.0.0.1:8000",
+      "https://pixeltube.example.com"
+    ],
+    "publicKey": "pk_PIXELTube_v1_9f3a7e1c4b8d2f6a5e9c3b7d1f4a8e2c6b9d3f7a1e5c8b2d4f6a9e3c7b1d5f8a"
   }
 }

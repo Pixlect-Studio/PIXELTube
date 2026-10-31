@@ -2,9 +2,8 @@
 
 import re
 import threading
-import time
 import uuid
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from typing import Any
 
 from storage import get_file_json, save_file_json
@@ -12,10 +11,6 @@ from storage import get_file_json, save_file_json
 SOCIAL_DATA_PATH = "Social/data.json"
 USER_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 _STORE_LOCK = threading.RLock()
-
-# 10-second cache to prevent downloading/uploading the entire social database
-# on every single page load or click, which was causing massive delays.
-_STORE_CACHE = {"data": None, "expires": 0}
 
 
 def _empty_store() -> dict[str, Any]:
@@ -37,31 +32,18 @@ def validate_user_id(user_id: str) -> str:
 
 
 def _read_store() -> dict[str, Any]:
-    # Return from memory if cache is still fresh
-    if _STORE_CACHE["data"] and time.time() < _STORE_CACHE["expires"]:
-        return _STORE_CACHE["data"]
-
     data = get_file_json(SOCIAL_DATA_PATH)
     if data is None:
-        data = _empty_store()
-    elif not isinstance(data, dict) or data.get("version") != 1:
+        return _empty_store()
+    if not isinstance(data, dict) or data.get("version") != 1:
         raise RuntimeError("Bunny social data is malformed or uses an unsupported version")
-    
-    # Ensure all required collections exist
     for key in ("users", "videos", "subscriptions", "history", "notifications"):
         if not isinstance(data.get(key), dict):
             raise RuntimeError(f"Bunny social data is missing a valid {key} collection")
-            
-    _STORE_CACHE["data"] = data
-    _STORE_CACHE["expires"] = time.time() + 10
     return data
 
 
 def _write_store(data: dict[str, Any]) -> None:
-    # Update memory cache instantly
-    _STORE_CACHE["data"] = data
-    _STORE_CACHE["expires"] = time.time() + 10
-    
     if not save_file_json(SOCIAL_DATA_PATH, data):
         raise RuntimeError("Bunny Storage rejected the social data update")
 
@@ -84,7 +66,7 @@ def _ensure_video(data: dict[str, Any], video_id: str) -> dict[str, Any]:
 
 
 def _ensure_user(data: dict[str, Any], user_id: str) -> dict[str, Any]:
-    data["users"].setdefault(user_id, {"id": user_id, "username": "PIXLECT User"})
+    data["users"].setdefault(user_id, {"id": user_id, "username": "PIXLECT user"})
     data["subscriptions"].setdefault(user_id, [])
     data["history"].setdefault(user_id, [])
     data["notifications"].setdefault(user_id, [])
@@ -172,7 +154,6 @@ def get_video_social(
         user_id = validate_user_id(user_id)
     if owner_id:
         owner_id = validate_user_id(owner_id)
-        
     with _STORE_LOCK:
         data = _read_store()
         video = _ensure_video(data, video_id)
@@ -185,12 +166,10 @@ def get_video_social(
 
         resolved_owner_id = owner_id or video.get("owner_id")
         owner = data["users"].get(resolved_owner_id) if resolved_owner_id else None
-        
         subscriber_count = sum(
             1 for subscriptions in data["subscriptions"].values()
             if resolved_owner_id and resolved_owner_id in subscriptions
         )
-        
         return {
             **reaction_counts,
             "reaction": video["reactions"].get(user_id) if user_id else None,
@@ -217,17 +196,14 @@ def set_reaction(user_id: str, username: str, video_id: str, reaction: str) -> d
         data = _read_store()
         video = _ensure_video(data, video_id)
         _ensure_user(data, user_id)
-        
         current = video["reactions"].get(user_id)
         if current == reaction:
             video["reactions"].pop(user_id)
         else:
             video["reactions"][user_id] = reaction
-            
         owner_id = video.get("owner_id")
         if owner_id and owner_id != user_id and video["reactions"].get(user_id) == "like":
             _notify(data, owner_id, f"{username} liked your video.")
-            
         _write_store(data)
     return get_video_social(video_id, user_id)
 
@@ -237,27 +213,22 @@ def add_comment(user_id: str, username: str, video_id: str, text: str) -> dict[s
     text = str(text or "").strip()
     if not text or len(text) > 2000:
         raise ValueError("Comments must contain 1 to 2,000 characters")
-        
     comment = {
         "id": uuid.uuid4().hex,
         "user_id": user_id,
-        "username": str(username or "PIXLECT User")[:50],
+        "username": str(username or "PIXLECT user")[:50],
         "text": text,
         "created_at": _now(),
     }
-    
     with _STORE_LOCK:
         data = _read_store()
         video = _ensure_video(data, video_id)
         _ensure_user(data, user_id)
-        
         video["comments"].insert(0, comment)
-        del video["comments"][500:] # Keep max 500 comments per video
-        
+        del video["comments"][500:]
         owner_id = video.get("owner_id")
         if owner_id and owner_id != user_id:
             _notify(data, owner_id, f"{comment['username']} commented on your video.")
-            
         _write_store(data)
     return comment
 
@@ -265,26 +236,20 @@ def add_comment(user_id: str, username: str, video_id: str, text: str) -> dict[s
 def toggle_subscription(user_id: str, username: str, creator_id: str) -> dict[str, Any]:
     user_id = validate_user_id(user_id)
     creator_id = validate_user_id(creator_id)
-    
     if user_id == creator_id:
         raise ValueError("You cannot subscribe to your own channel")
-        
     with _STORE_LOCK:
         data = _read_store()
         _ensure_user(data, user_id)
-        
         subscriptions = data["subscriptions"][user_id]
         subscribed = creator_id not in subscriptions
-        
         if subscribed:
             subscriptions.append(creator_id)
             _notify(data, creator_id, f"{username} subscribed to your channel.")
         else:
             subscriptions.remove(creator_id)
-            
         _write_store(data)
         count = sum(1 for items in data["subscriptions"].values() if creator_id in items)
-        
     return {"subscribed": subscribed, "subscriber_count": count}
 
 
@@ -292,11 +257,9 @@ def record_view(user_id: str | None, video_id: str) -> None:
     if not user_id:
         return
     user_id = validate_user_id(user_id)
-    
     with _STORE_LOCK:
         data = _read_store()
         _ensure_user(data, user_id)
-        
         history = data["history"][user_id]
         history[:] = [video_id, *[item for item in history if item != video_id]][:100]
         _write_store(data)
@@ -304,7 +267,6 @@ def record_view(user_id: str | None, video_id: str) -> None:
 
 def get_user_activity(user_id: str) -> dict[str, Any]:
     user_id = validate_user_id(user_id)
-    
     with _STORE_LOCK:
         data = _read_store()
         reactions = [
@@ -321,64 +283,8 @@ def get_user_activity(user_id: str) -> dict[str, Any]:
 
 def mark_notifications_read(user_id: str) -> None:
     user_id = validate_user_id(user_id)
-    
     with _STORE_LOCK:
         data = _read_store()
         for notification in data["notifications"].get(user_id, []):
             notification["read"] = True
-        _write_store(data)
-
-
-def check_upload_quota(user_id: str, video_type: str) -> bool:
-    """Check if the user has exceeded their monthly upload limits."""
-    if not user_id:
-        return True 
-        
-    user_id = validate_user_id(user_id)
-    with _STORE_LOCK:
-        data = _read_store()
-        user = _ensure_user(data, user_id)
-        current_month = datetime.now(timezone.utc).strftime("%Y-%m")
-        
-        uploads = user.get("uploads", [])
-        
-        # Count uploads in the current month
-        current_uploads = [u for u in uploads if u.get("month") == current_month]
-        long_count = sum(1 for u in current_uploads if u.get("type") == "long")
-        mini_count = sum(1 for u in current_uploads if u.get("type") == "mini")
-        
-        if video_type == "long" and long_count >= 5:
-            return False
-        if video_type == "mini" and mini_count >= 10:
-            return False
-        return True
-
-
-def record_upload(user_id: str, video_type: str) -> None:
-    """Record a successful upload to track quotas."""
-    if not user_id:
-        return
-        
-    user_id = validate_user_id(user_id)
-    with _STORE_LOCK:
-        data = _read_store()
-        user = _ensure_user(data, user_id)
-        current_month = datetime.now(timezone.utc).strftime("%Y-%m")
-        
-        if "uploads" not in user:
-            user["uploads"] = []
-            
-        user["uploads"].append({
-            "month": current_month,
-            "type": video_type,
-            "timestamp": _now()
-        })
-        
-        # Clean up uploads older than 2 months to keep the database small
-        valid_months = [
-            current_month,
-            (datetime.now(timezone.utc) - timedelta(days=31)).strftime("%Y-%m")
-        ]
-        user["uploads"] = [u for u in user["uploads"] if u.get("month") in valid_months]
-        
         _write_store(data)

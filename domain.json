@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "network": "PIXLECT",
+  "authDomain": "https://accounts.pixlect-studios.com",
+  "apps": {
+    "PIXELTube": {
+      "origins": [
+        "http://localhost:8000",
+        "http://localhost:8001",
+        "http://127.0.0.1:8000",
+        "https://pixeltube.example.com"
+      ],
+      "publicKey": "pk_PIXELTube_v1_9f3a7e1c4b8d2f6a5e9c3b7d1f4a8e2c6b9d3f7a1e5c8b2d4f6a9e3c7b1d5f8a"
+    },
+    "MicroNet": {
+      "origins": [
+        "http://localhost:8000",
+        "https://microneet.example.com"
+      ],
+      "publicKey": "pk_MicroNet_v1_7f8a9b2c3d4e5f6a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a"
+    }
+  }
+}
