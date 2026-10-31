@@ -1,8 +1,8 @@
 /* =====================================================================
    PIXELTube × PIXLECT Account Network — login.js  (strict-crypto)
    ---------------------------------------------------------------------
-   Requires /static/js/pixlect-crypto.js to be loaded first.
-   Requires /static/domain.json to exist.
+   Requires /pixlect-crypto.js to be loaded first.
+   Requires /domain.json to exist (served at root).
    ===================================================================== */
 
 (function () {
@@ -20,8 +20,8 @@
       'https://www.account.pixlect-studios.com'
     ],
 
-    // Where the app's domain.json is located
-    domainJsonUrl: '/static/domain.json',
+    // FastAPI serves the static folder at root, so no /static/ prefix here
+    domainJsonUrl: '/domain.json',
 
     storageKey: 'pixeltube:pixlect_user',
     sessionTTL: 24 * 60 * 60 * 1000,
@@ -56,7 +56,7 @@
     if (!c || typeof c.seal !== 'function' || typeof c.open !== 'function') {
       throw new Error(
         'pixlect-crypto.js missing or wrong version. ' +
-        'Add <script src="/static/js/pixlect-crypto.js"></script> before login.js.'
+        'Add <script src="/pixlect-crypto.js"></script> before login.js.'
       );
     }
     return c;
@@ -96,7 +96,7 @@
   async function saveUser(user) {
     try {
       await ensureRegistry();
-      // Use strict app-scoped syntax
+      // Strict app-scoped syntax
       await getCrypto().saveSession(CONFIG.app, CONFIG.storageKey, user, CONFIG.sessionTTL);
     } catch (e) {
       warn('Could not save session:', e);
@@ -107,7 +107,7 @@
   async function loadUser() {
     try {
       await ensureRegistry();
-      // Use strict app-scoped syntax
+      // Strict app-scoped syntax
       return await getCrypto().loadSession(CONFIG.app, CONFIG.storageKey);
     } catch (e) {
       warn('Could not load session:', e);
@@ -227,7 +227,7 @@
     let payload;
     try {
       await ensureRegistry();
-      // Use strict app-scoped syntax
+      // Strict app-scoped syntax
       payload = await getCrypto().open(CONFIG.app, data.envelope);
     } catch (e) {
       err('Rejected encrypted auth message:', e.message);
