@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>PIXEL Creative</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 20'><rect width='28' height='20' rx='5' fill='%23ff0000'/><path d='M11.2 5.6v8.8L19 10z' fill='%23fff'/></svg>">
 <style>
-  /* [Keep the exact same CSS from the previous studio.html] */
   :root { --bg: #0f0f0f; --bg-elev: #212121; --text: #f1f1f1; --text-dim: #aaaaaa; --border: #303030; --hover: #272727; --accent: #ff0000; --studio-bg: #1f1f1f; --studio-card: #282828; --blue: #3ea6ff; }
   * { box-sizing: border-box; }
   body { font-family: Roboto, system-ui, sans-serif; background: var(--bg); color: var(--text); margin: 0; display: flex; height: 100vh; overflow: hidden; }
@@ -70,7 +70,7 @@
   <div class="modal">
     <h2>Upload to PIXELTube</h2>
     <label>Title</label>
-    <input type="text" id="upTitle" placeholder="Title (Appends #1, #2 if multiple)">
+    <input type="text" id="upTitle" placeholder="Title">
     <label>Thumbnail URL</label>
     <input type="text" id="upThumb" placeholder="https://...">
     <label>Video Type</label>
@@ -78,7 +78,7 @@
       <option value="videos">Standard Video</option>
       <option value="minis">Mini (Shorts)</option>
     </select>
-    <label>Select File(s) - Select multiple to upload sequentially</label>
+    <label>Select File(s)</label>
     <input type="file" id="upFile" accept="video/mp4,video/webm" multiple>
     <div class="modal-actions">
       <button class="btn-cancel" id="cancelUpload">Cancel</button>
@@ -92,7 +92,7 @@
 
 <script type="module">
 import { initLoginManager } from './loginmanager.js';
-import { uploadInChunks } from './upload.js';
+import { uploadInChunks } from './storage.js';
 import { getDatabase, saveDatabase, addVideoToDatabase } from './statistics.js';
 
 let currentChannel = null;
@@ -102,10 +102,7 @@ const profileEl = document.getElementById('channel-profile');
 initLoginManager((channel) => {
     if (channel) {
         currentChannel = channel;
-        profileEl.innerHTML = `
-            <div style="width:32px; height:32px; border-radius:50%; background:${channel.avatarColor}; display:grid; place-items:center; font-weight:700; color:#fff;">${channel.name[0].toUpperCase()}</div>
-            <span style="font-weight:500;">${channel.name}</span>
-        `;
+        profileEl.innerHTML = `<div style="width:32px; height:32px; border-radius:50%; background:${channel.avatarColor}; display:grid; place-items:center; font-weight:700; color:#fff;">${channel.name[0].toUpperCase()}</div><span style="font-weight:500;">${channel.name}</span>`;
         renderView('dashboard');
     } else {
         contentEl.innerHTML = `<div class="empty-state"><h2>Sign in to PIXEL Creative</h2><button id="studioLoginBtn" class="btn-upload">Sign in</button></div>`;
@@ -124,10 +121,8 @@ document.querySelectorAll('.nav-item').forEach(item => {
 async function renderView(view) {
     if (!currentChannel) return;
     contentEl.innerHTML = `<div style="padding:80px;text-align:center;color:var(--text-dim);">Loading...</div>`;
-    
     let db = { videos: {}, likes: {} };
     try { db = await getDatabase(); } catch(e) {}
-
     const allVideos = db.videos ? Object.values(db.videos) : [];
     const myVideos = allVideos.filter(v => v.channelUid === currentChannel.uid);
 
@@ -144,20 +139,12 @@ async function renderView(view) {
                 ${myVideos.length ? `
                 <table class="table">
                     <thead><tr><th>Video</th><th>Views</th><th>Likes</th></tr></thead>
-                    <tbody>
-                        ${myVideos.slice(0,3).map(v => `
-                            <tr>
-                                <td><div class="video-cell"><img src="${v.thumbnail}" class="video-thumb"><div class="video-info"><h4>${v.title}</h4><span>${v.time}</span></div></div></td>
-                                <td>0</td><td>${db.likes[v.id] || 0}</td>
-                            </tr>
-                        `).join('')}
-                    </tbody>
+                    <tbody>${myVideos.slice(0,3).map(v => `<tr><td><div class="video-cell"><img src="${v.thumbnail}" class="video-thumb"><div class="video-info"><h4>${v.title}</h4><span>${v.time}</span></div></div></td><td>0</td><td>${db.likes[v.id] || 0}</td></tr>`).join('')}</tbody>
                 </table>` : `<div class="empty-state"><p>No videos yet.</p></div>`}
             </div>
         `;
         document.getElementById('openUpload').onclick = () => document.getElementById('uploadModal').classList.add('active');
     } 
-    
     else if (view === 'content') {
         contentEl.innerHTML = `
             <div class="header-row"><h1>Channel Content</h1><button class="btn-upload" id="openUpload">Upload Video</button></div>
@@ -165,34 +152,21 @@ async function renderView(view) {
                 ${myVideos.length ? `
                 <table class="table">
                     <thead><tr><th>Video</th><th>Date</th><th>Actions</th></tr></thead>
-                    <tbody>
-                        ${myVideos.map(v => `
-                            <tr>
-                                <td><div class="video-cell"><img src="${v.thumbnail}" class="video-thumb"><div class="video-info"><h4>${v.title}</h4><span>${v.duration}</span></div></div></td>
-                                <td>${v.time}</td>
-                                <td><button class="btn-icon btn-danger" data-del="${v.id}">Delete</button></td>
-                            </tr>
-                        `).join('')}
-                    </tbody>
+                    <tbody>${myVideos.map(v => `<tr><td><div class="video-cell"><img src="${v.thumbnail}" class="video-thumb"><div class="video-info"><h4>${v.title}</h4><span>${v.duration}</span></div></div></td><td>${v.time}</td><td><button class="btn-icon btn-danger" data-del="${v.id}">Delete</button></td></tr>`).join('')}</tbody>
                 </table>` : `<div class="empty-state"><p>No videos.</p></div>`}
             </div>
         `;
         document.getElementById('openUpload').onclick = () => document.getElementById('uploadModal').classList.add('active');
-        
         document.querySelectorAll('[data-del]').forEach(btn => {
             btn.onclick = async () => {
                 if (confirm('Delete this video?')) {
-                    const db = await getDatabase();
-                    delete db.videos[btn.dataset.del];
-                    await saveDatabase(db);
-                    renderView('content');
+                    const db = await getDatabase(); delete db.videos[btn.dataset.del]; await saveDatabase(db); renderView('content');
                 }
             };
         });
     }
 }
 
-// --- CHUNKED UPLOAD LOGIC ---
 const modal = document.getElementById('uploadModal');
 document.getElementById('cancelUpload').onclick = () => modal.classList.remove('active');
 
@@ -204,49 +178,21 @@ document.getElementById('confirmUpload').onclick = async () => {
     const btn = document.getElementById('confirmUpload');
 
     if (!title || !thumb || files.length === 0) return alert("Please fill fields and select at least one file.");
-
     btn.disabled = true; 
 
     try {
         for (let i = 0; i < files.length; i++) {
             const file = files[i];
             const fileTitle = files.length > 1 ? `${title} - Part ${i + 1}` : title;
-            
-            // Upload chunks
-            await uploadInChunks(file, file.name, type, (progress) => {
-                btn.textContent = `File ${i+1}/${files.length} - ${Math.round(progress * 100)}%`;
-            });
-            
-            // Save metadata to database
-            const newVid = {
-                id: `bunny-${type}-${file.name}`,
-                title: fileTitle,
-                thumbnail: thumb,
-                channelUid: currentChannel.uid,
-                channelName: currentChannel.name,
-                channelAvatar: currentChannel.avatarColor,
-                views: '0',
-                time: 'Just now',
-                duration: '0:00',
-                videoUrl: `https://${window.BUNNY_CDN || 'apullzone.b-cdn.net'}/${type}/${file.name}`,
-                isMini: type === 'minis'
-            };
-
+            await uploadInChunks(file, file.name, type, (progress) => { btn.textContent = `File ${i+1}/${files.length} - ${Math.round(progress * 100)}%`; });
+            const newVid = { id: `bunny-${type}-${file.name}`, title: fileTitle, thumbnail: thumb, channelUid: currentChannel.uid, channelName: currentChannel.name, channelAvatar: currentChannel.avatarColor, views: '0', time: 'Just now', duration: '0:00', videoUrl: `https://${window.BUNNY_CDN || 'apullzone.b-cdn.net'}/${type}/${file.name}`, isMini: type === 'minis' };
             await addVideoToDatabase(newVid);
         }
-
         modal.classList.remove('active');
-        document.getElementById('upTitle').value = '';
-        document.getElementById('upThumb').value = '';
-        document.getElementById('upFile').value = '';
+        document.getElementById('upTitle').value = ''; document.getElementById('upThumb').value = ''; document.getElementById('upFile').value = '';
         renderView('dashboard');
         alert(`Successfully uploaded ${files.length} video(s)!`);
-    } catch (err) {
-        console.error(err);
-        alert("Upload failed. Check console for details.");
-    } finally {
-        btn.disabled = false; btn.textContent = "Upload";
-    }
+    } catch (err) { alert("Upload failed. Check console."); } finally { btn.disabled = false; btn.textContent = "Upload"; }
 };
 </script>
 </body>

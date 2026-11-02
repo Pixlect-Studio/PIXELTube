@@ -1,6 +1,4 @@
-// loginmanager.js
 import { getOrCreateChannel } from './statistics.js';
-
 export function initLoginManager(onUserChanged) {
     document.addEventListener('DOMContentLoaded', () => {
         if (window.PIXELTubeAuth) {
@@ -15,8 +13,6 @@ export function initLoginManager(onUserChanged) {
                         if (onUserChanged) onUserChanged(null);
                     }
                 } catch (e) {
-                    console.error("Auth manager failed to load channel:", e);
-                    // Fallback: still render the user if possible
                     if (onUserChanged) onUserChanged({ name: user.username || 'User', avatarColor: '#333', uid: user.uid });
                 }
             });

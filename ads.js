@@ -1,13 +1,9 @@
-// ads.js
 export async function getActiveAds() {
     try {
         const res = await fetch('/api/ads');
         const data = await res.json();
         return data.ads || [];
-    } catch (e) {
-        console.warn("Failed to load ads", e);
-        return [];
-    }
+    } catch (e) { return []; }
 }
 
 export function createAdCard(ad) {
