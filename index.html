@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PIXELTube</title>
+<style>
+  /* Core Layout Styles */
+  :root {
+    --bg: #0f0f0f; --bg-elev: #212121; --text: #f1f1f1; --text-dim: #aaaaaa;
+    --border: #303030; --hover: #272727; --chip-bg: #272727; --accent: #ff0000;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; margin: 0; }
+  body { font-family: Roboto, system-ui, sans-serif; background: var(--bg); color: var(--text); overflow: hidden; display: flex; flex-direction: column; transition: background 0.3s; }
+  .topbar { height: 56px; flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding: 0 16px; background: var(--bg); z-index: 100; }
+  .topbar-left { display: flex; align-items: center; gap: 4px; }
+  .topbar-center { flex: 1; display: flex; align-items: center; justify-content: center; }
+  .topbar-right { display: flex; align-items: center; gap: 8px; }
+  .icon-btn { width: 40px; height: 40px; display: grid; place-items: center; border: none; background: transparent; border-radius: 50%; cursor: pointer; }
+  .logo { display: flex; align-items: center; gap: 6px; text-decoration: none; color: var(--text); padding: 0 8px; }
+  .logo svg { width: 30px; height: 21px; }
+  .logo-text { font-size: 20px; font-weight: 700; }
+  .search-form { display: flex; align-items: center; width: 100%; max-width: 600px; border: 1px solid var(--border); border-radius: 20px; overflow: hidden; background: var(--bg-elev); }
+  .search-form input { flex: 1; border: none; outline: none; background: transparent; color: var(--text); padding: 9px 16px; }
+  .search-btn { width: 62px; border: none; border-left: 1px solid var(--border); background: var(--hover); cursor: pointer; display: grid; place-items: center; }
+  #pixlect-login { background: var(--text); color: var(--bg); border: none; border-radius: 20px; padding: 8px 16px; font-weight: 600; cursor: pointer; }
+  .app { display: flex; flex: 1; overflow: hidden; }
+  .sidebar { width: 240px; flex-shrink: 0; padding: 12px; overflow-y: auto; background: var(--bg); }
+  .nav-item { display: flex; align-items: center; gap: 22px; padding: 8px 12px; border-radius: 10px; cursor: pointer; font-size: 14px; margin-bottom: 2px; }
+  .nav-item:hover { background: var(--hover); }
+  .nav-item.active { background: var(--hover); font-weight: 500; }
+  .nav-item svg { width: 24px; height: 24px; }
+  .divider { height: 1px; background: var(--border); margin: 12px 0; }
+  .section-title { font-size: 15px; font-weight: 500; padding: 6px 12px 4px; }
+  .sidebar-footer { padding: 16px 12px; font-size: 12px; color: var(--text-dim); }
+  main { flex: 1; overflow-y: auto; }
+  .chips { display: flex; gap: 12px; padding: 12px 24px; position: sticky; top: 0; background: var(--bg); z-index: 10; }
+  .chip { padding: 7px 14px; border-radius: 8px; background: var(--chip-bg); border: none; font-size: 14px; font-weight: 500; cursor: pointer; }
+  .chip.active { background: var(--text); color: var(--bg); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 24px 16px; padding: 8px 24px 48px; }
+  .card { cursor: pointer; border-radius: 12px; transition: transform 0.2s; }
+  .thumb { aspect-ratio: 16/9; border-radius: 12px; position: relative; overflow: hidden; background: #222; }
+  .thumb img { width: 100%; height: 100%; object-fit: cover; }
+  .duration { position: absolute; bottom: 8px; right: 8px; background: rgba(0,0,0,.82); color: #fff; font-size: 12px; font-weight: 600; padding: 3px 5px; border-radius: 4px; }
+  .card-body { display: flex; gap: 12px; padding: 12px 4px 0; }
+  .avatar { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; font-size: 15px; font-weight: 700; color: #fff; }
+  .card-meta { flex: 1; min-width: 0; }
+  .card-title { font-size: 15px; font-weight: 500; margin: 0 0 4px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .card-channel { font-size: 13px; color: var(--text-dim); display: flex; align-items: center; gap: 4px; }
+  .card-stats { font-size: 13px; color: var(--text-dim); }
+  .minis-container { padding: 24px; max-width: 1200px; margin: 0 auto; }
+  .minis-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 16px; }
+  .mini-shorts-card { aspect-ratio: 9/16; border-radius: 12px; overflow: hidden; cursor: pointer; position: relative; background: #222; }
+  .mini-shorts-thumb { width: 100%; height: 100%; object-fit: cover; }
+  .mini-shorts-overlay { position: absolute; inset: 0; background: linear-gradient(transparent 50%, rgba(0,0,0,0.9)); display: flex; flex-direction: column; justify-content: flex-end; padding: 12px; color: white; }
+  .mini-shorts-title { font-weight: 600; font-size: 14px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .watch { display: grid; grid-template-columns: minmax(0,1fr) 402px; gap: 24px; padding: 24px; max-width: 1754px; margin: 0 auto; }
+  .player { aspect-ratio: 16/9; border-radius: 12px; overflow: hidden; background: #000; }
+  .player video { width: 100%; height: 100%; object-fit: contain; }
+  .watch-title { font-size: 20px; font-weight: 700; margin: 16px 0 10px; }
+  .watch-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .channel-row { display: flex; align-items: center; gap: 12px; flex: 1; }
+  .btn { border: none; border-radius: 20px; cursor: pointer; font-size: 14px; font-weight: 600; padding: 9px 16px; background: var(--chip-bg); color: var(--text); transition: background 0.2s; }
+  .btn.primary { background: var(--text); color: var(--bg); }
+  .btn.active-like { background: var(--text); color: var(--bg); }
+  .action-group { display: flex; gap: 8px; }
+  .pill-group { display: flex; background: var(--chip-bg); border-radius: 20px; overflow: hidden; }
+  .pill-group .btn { background: transparent; border-radius: 0; }
+  .comments { margin-top: 24px; }
+  .comment-input { width: 100%; background: transparent; border: none; border-bottom: 1px solid var(--border); color: var(--text); padding: 8px 0; outline: none; }
+  .watch-side { display: flex; flex-direction: column; gap: 12px; }
+  .mini-card { display: flex; gap: 8px; cursor: pointer; padding: 4px; }
+  .mini-thumb { width: 168px; aspect-ratio: 16/9; border-radius: 8px; overflow: hidden; }
+  .mini-thumb img { width: 100%; height: 100%; object-fit: cover; }
+  .toast { position: fixed; bottom: 24px; left: 50%; transform: translate(-50%, 80px); background: #f1f1f1; color: #0f0f0f; padding: 12px 20px; border-radius: 8px; font-weight: 600; z-index: 999; opacity: 0; transition: all .3s; pointer-events: none; }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+  .auth-hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-left">
+    <button class="icon-btn" id="menuBtn"></button>
+    <a class="logo" href="#" id="logoBtn">
+      <svg viewBox="0 0 28 20"><rect width="28" height="20" rx="5" fill="#ff0000"/><path d="M11.2 5.6v8.8L19 10z" fill="#fff"/></svg>
+      <span class="logo-text">PIXELTube</span>
+    </a>
+  </div>
+  <div class="topbar-center">
+    <form class="search-form" id="searchForm">
+      <input type="text" id="searchInput" placeholder="Search">
+      <button class="search-btn" type="submit" id="searchIconBtn"></button>
+    </form>
+  </div>
+  <div class="topbar-right">
+    <select id="themeSelect" style="background:var(--bg-elev); color:var(--text); border:1px solid var(--border); padding:6px; border-radius:8px; cursor:pointer;">
+        <option value="default">Default Theme</option>
+        <option value="white">White</option>
+        <option value="gaming">Gaming</option>
+        <option value="code">Code</option>
+    </select>
+    <button id="pixlect-login">Sign in with PIXLECT</button>
+    <div id="pixlect-user" class="auth-hidden"></div>
+  </div>
+</header>
+
+<div class="app">
+  <aside class="sidebar" id="sidebar"></aside>
+  <main id="main"></main>
+</div>
+<div class="toast" id="toast"></div>
+
+<script src="/pixlect-crypto.js"></script>
+<script src="/login.js" defer></script>
+
+<script type="module">
+import { loadEnv, fetchVideos, fetchMinis } from './storage.js';
+import { getDatabase, getVideoStats, addLike, addComment } from './statistics.js';
+import { initLoginManager } from './loginmanager.js';
+
+// --- THEME ENGINE ---
+const themeSelect = document.getElementById('themeSelect');
+const themeStyleEl = document.createElement('style');
+themeStyleEl.id = 'dynamic-theme';
+document.head.appendChild(themeStyleEl);
+
+themeSelect.addEventListener('change', async (e) => {
+    const theme = e.target.value;
+    if (theme === 'default') {
+        themeStyleEl.innerHTML = '';
+        return;
+    }
+    try {
+        const module = await import(`./themes/${theme}.js`);
+        if (module.apply) module.apply();
+    } catch (err) {
+        console.error(`Failed to load theme: ${theme}`, err);
+    }
+});
+
+// --- STATE & DATA ---
+let VIDEOS = [
+  { id:'v1', title:'I Built a $10,000 Gaming Setup in a Toaster', channel:'MrBeast', subs:'245M', views:'12M views', time:'2 days ago', duration:'14:22', thumbnail:'https://images.unsplash.com/photo-1593640408182-31c70c8268f5?q=80&w=600&auto=format&fit=crop', avatar:'#e63946', verified:true, category:'Gaming' },
+  { id:'v2', title:'React in 100 Seconds', channel:'Fireship', subs:'3.2M', views:'2.1M views', time:'1 year ago', duration:'2:14', thumbnail:'https://images.unsplash.com/photo-1633356122544-f134324a6cee?q=80&w=600&auto=format&fit=crop', avatar:'#f4a261', verified:true, category:'Tech' }
+];
+let MINIS = [];
+
+const CHIPS = ['All','Music','Gaming','Tech','Learning'];
+const NAV_MAIN = [ { icon:'home', label:'Home' }, { icon:'shorts', label:'Minis' }, { icon:'subs', label:'Subscriptions' } ];
+const NAV_EXPLORE = [ { icon:'fire', label:'Trending' }, { icon:'music', label:'Music' }, { icon:'game', label:'Gaming' }, { icon:'news', label:'News' } ];
+
+const state = { view: 'home', currentVideo: null, chip: 'All', search: '', liked: new Set(), activeNav: 'Home' };
+const mainEl = document.getElementById('main');
+const sidebarEl = document.getElementById('sidebar');
+const toastEl = document.getElementById('toast');
+
+const $ = (s, r = document) => r.querySelector(s);
+function esc(str) { return String(str).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+let toastTimer;
+function toast(msg) { toastEl.textContent = msg; toastEl.classList.add('show'); clearTimeout(toastTimer); toastTimer = setTimeout(() => toastEl.classList.remove('show'), 2500); }
+
+// --- RENDER FUNCTIONS ---
+const I = {
+  menu: `<svg viewBox="0 0 24 24" fill="none"><path d="M3 6h18M3 12h18M3 18h18" stroke="currentColor" stroke-width="1.8"/></svg>`,
+  search: `<svg viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="1.8"/><path d="M20 20l-3.6-3.6" stroke="currentColor" stroke-width="1.8"/></svg>`,
+  home: `<svg viewBox="0 0 24 24" fill="none"><path d="M4 10.4L12 4l8 6.4V20a1 1 0 01-1 1h-4.5v-6h-5v6H5a1 1 0 01-1-1v-9.6z" stroke="currentColor" stroke-width="1.7"/></svg>`,
+  shorts: `<svg viewBox="0 0 24 24" fill="none"><rect x="7" y="2.5" width="10" height="19" rx="5" stroke="currentColor" stroke-width="1.7"/><path d="M10.5 9.2l4 2.8-4 2.8V9.2z" fill="currentColor"/></svg>`,
+  subs: `<svg viewBox="0 0 24 24" fill="none"><rect x="3" y="6.5" width="18" height="13" rx="2.5" stroke="currentColor" stroke-width="1.7"/><path d="M10.5 11.4l4 2.1-4 2.1v-4.2z" fill="currentColor"/></svg>`,
+  like: `<svg viewBox="0 0 24 24" fill="none"><path d="M7 10.5v9H4.5a1 1 0 01-1-1v-7a1 1 0 011-1H7z" stroke="currentColor" stroke-width="1.7"/><path d="M7 10.5l3.6-6.6a1.6 1.6 0 012.9 1.2L13 9h5.2a2 2 0 011.96 2.4l-1.3 6a2 2 0 01-1.96 1.6H7" stroke="currentColor" stroke-width="1.7"/></svg>`,
+  likeFill: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 10.5v9H4.5a1 1 0 01-1-1v-7a1 1 0 011-1H7zm1.2 9l3.6-6.6A1.6 1.6 0 0011 9V9h5.2a2 2 0 011.96 2.4l-1.3 6A2 2 0 0114.9 19.5H8.2z"/></svg>`,
+  dislike: `<svg viewBox="0 0 24 24" fill="none"><path d="M17 13.5v-9h2.5a1 1 0 011 1v7a1 1 0 01-1 1H17z" stroke="currentColor" stroke-width="1.7"/><path d="M17 13.5l-3.6 6.6a1.6 1.6 0 01-2.9-1.2L11 15H5.8a2 2 0 01-1.96-2.4l1.3-6A2 2 0 017.1 5H17" stroke="currentColor" stroke-width="1.7"/></svg>`,
+  share: `<svg viewBox="0 0 24 24" fill="none"><path d="M13.5 5.5l6 5-6 5v-3.2c-4 0-6.6 1.3-8.5 4.2.6-5.2 3.2-8.2 8.5-8.9V5.5z" stroke="currentColor" stroke-width="1.7"/></svg>`,
+  verify: `<svg style="width:14px; height:14px; min-width:14px; flex-shrink:0;" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.4 1.8 3-.3 1 2.8 2.6 1.5-1 2.9 1 2.9-2.6 1.5-1 2.8-3-.3L12 22l-2.4-1.8-3 .3-1-2.8-2.6-1.5 1-2.9-1-2.9L5.6 9l1-2.8 3 .3L12 2z"/><path d="M10.6 15.4l-3-3 1.3-1.3 1.7 1.7 4.1-4.1 1.3 1.3-5.4 5.4z" fill="#0f0f0f"/></svg>`,
+  studio: `<svg viewBox="0 0 24 24" fill="none"><path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" stroke-width="1.8"/><circle cx="8" cy="6" r="2" fill="currentColor"/><circle cx="16" cy="12" r="2" fill="currentColor"/><circle cx="10" cy="18" r="2" fill="currentColor"/></svg>`,
+  fire: `<svg viewBox="0 0 24 24" fill="none"><path d="M12 2.5s5.5 4.5 5.5 10a5.5 5.5 0 11-11 0c0-2.2 1-3.8 1-3.8s1 2 2.5 2.5c0-3.5 2-6.2 2-8.7z" stroke="currentColor" stroke-width="1.7"/></svg>`,
+  music: `<svg viewBox="0 0 24 24" fill="none"><path d="M9 18V6l11-2v12" stroke="currentColor" stroke-width="1.7"/><circle cx="6.5" cy="18" r="2.5" stroke="currentColor" stroke-width="1.7"/><circle cx="17.5" cy="16" r="2.5" stroke="currentColor" stroke-width="1.7"/></svg>`,
+  game: `<svg viewBox="0 0 24 24" fill="none"><rect x="2.5" y="7" width="19" height="10" rx="5" stroke="currentColor" stroke-width="1.7"/><path d="M7 10.5v3M5.5 12h3M15.5 11h.01M17.5 13.5h.01" stroke="currentColor" stroke-width="1.9"/></svg>`,
+  news: `<svg viewBox="0 0 24 24" fill="none"><rect x="3" y="5" width="18" height="14" rx="2" stroke="currentColor" stroke-width="1.7"/><path d="M7 9h6M7 12.5h6M7 16h4M16.5 9v7" stroke="currentColor" stroke-width="1.7"/></svg>`
+};
+
+function renderSidebar() {
+  sidebarEl.innerHTML = `
+    ${NAV_MAIN.map(nav => `<div class="nav-item ${state.activeNav === nav.label ? 'active' : ''}" data-nav="${nav.label}">${I[nav.icon]}<span class="label">${nav.label}</span></div>`).join('')}
+    <div class="divider"></div>
+    <a href="studio.html" class="nav-item" style="color: #3ea6ff; text-decoration: none;">${I.studio}<span class="label">PIXEL Creative</span></a>
+    <div class="divider"></div>
+    <div class="section-title">Explore</div>
+    ${NAV_EXPLORE.map(nav => `<div class="nav-item ${state.activeNav === nav.label ? 'active' : ''}" data-nav="${nav.label}">${I[nav.icon]}<span class="label">${nav.label}</span></div>`).join('')}
+    <div class="divider"></div>
+    <div class="sidebar-footer">© 2024 PIXELTube</div>
+  `;
+}
+
+function renderHome() {
+  state.view = 'home';
+  const q = state.search.trim().toLowerCase();
+  const list = VIDEOS.filter(v => {
+    const chipOk = state.chip === 'All' || v.category === state.chip;
+    const searchOk = !q || v.title.toLowerCase().includes(q) || v.channel.toLowerCase().includes(q);
+    return chipOk && searchOk;
+  });
+
+  mainEl.innerHTML = `
+    <div class="chips">${CHIPS.map(c => `<button class="chip${state.chip === c ? ' active' : ''}" data-chip="${c}">${c}</button>`).join('')}</div>
+    <div class="grid">
+      ${list.map(v => `
+        <article class="card" data-video="${v.id}">
+          <div class="thumb">
+            <img src="${v.thumbnail}" alt="${esc(v.title)}" onerror="this.onerror=null; this.src='https://placehold.co/600x338/1f1f1f/FFF?text=PIXELTube'">
+            <span class="duration">${v.duration}</span>
+          </div>
+          <div class="card-body">
+            <div class="avatar" style="background:${v.avatar || '#333'}">${esc(v.channel[0])}</div>
+            <div class="card-meta">
+              <h3 class="card-title">${esc(v.title)}</h3>
+              <div class="card-channel">${esc(v.channel)}${v.verified ? I.verify : ''}</div>
+              <div class="card-stats">${v.views} · ${v.time}</div>
+            </div>
+          </div>
+        </article>
+      `).join('')}
+    </div>
+  `;
+  mainEl.scrollTop = 0;
+}
+
+function renderMinis() {
+  state.view = 'minis';
+  state.activeNav = 'Minis';
+  renderSidebar();
+  mainEl.innerHTML = `
+    <div class="minis-container">
+      <div style="margin-bottom: 24px;"><h2>Minis</h2></div>
+      <div class="minis-grid">
+        ${MINIS.length ? MINIS.map(m => `
+          <div class="mini-shorts-card" data-video="${m.id}">
+            <img src="${m.thumbnail}" class="mini-shorts-thumb" onerror="this.onerror=null; this.src='https://placehold.co/400x700/1f1f1f/FFF?text=Mini'">
+            <div class="mini-shorts-overlay"><span class="mini-shorts-title">${esc(m.title)}</span></div>
+          </div>
+        `).join('') : '<p style="color:var(--text-dim)">No Minis uploaded yet.</p>'}
+      </div>
+    </div>
+  `;
+}
+
+async function renderWatch() {
+  const v = state.currentVideo;
+  if (!v) return renderHome();
+  state.view = 'watch';
+
+  mainEl.innerHTML = `<div style="padding:80px;text-align:center;color:var(--text-dim);font-size:16px;">Loading...</div>`;
+  const stats = await getVideoStats(v.id);
+  
+  mainEl.innerHTML = `
+    <div class="watch">
+      <div class="watch-main">
+        <div class="player">
+          ${v.isMini ? `<video src="${v.videoUrl}" controls autoplay loop style="width:100%;height:100%;object-fit:contain;"></video>` : `<video src="${v.videoUrl}" controls autoplay style="width:100%;height:100%;"></video>`}
+        </div>
+        <h1 class="watch-title">${esc(v.title)}</h1>
+        <div class="watch-bar">
+          <div class="channel-row">
+            <div class="avatar" style="background:${v.avatar || '#333'}">${esc(v.channel[0])}</div>
+            <div>
+              <div style="font-weight:600; font-size:15px; display:flex; align-items:center; gap:4px;">${esc(v.channel)}${v.verified ? I.verify : ''}</div>
+              <div style="font-size:12px;color:var(--text-dim);">${v.subs || '1M'} subscribers</div>
+            </div>
+            <button class="btn primary" style="margin-left:8px">Subscribe</button>
+          </div>
+          <div class="action-group">
+            <div class="pill-group">
+              <button class="btn ${state.liked.has(v.id) ? 'active-like' : ''}" id="likeBtn">${state.liked.has(v.id) ? I.likeFill : I.like}<span>${stats.likes}</span></button>
+              <div style="width:1px; background:var(--border); margin:8px 0;"></div><button class="btn">${I.dislike}</button>
+            </div>
+            <button class="btn">${I.share} Share</button>
+          </div>
+        </div>
+        <div style="background:var(--chip-bg); padding:12px; border-radius:12px; margin-top:16px;">
+          <div style="font-weight:600; font-size:14px; margin-bottom:4px;">${v.views} views · ${v.time}</div>
+          <div style="font-size:14px;">Welcome to PIXELTube.</div>
+        </div>
+        <div class="comments">
+          <h2>${stats.comments.length} Comments</h2>
+          <div style="display:flex; gap:14px; margin-bottom:24px;">
+            <div class="avatar" style="background:#7b2ff7">P</div>
+            <div style="flex:1;">
+              <input class="comment-input" id="commentInput" placeholder="Add a comment..." />
+              <div style="display:flex; justify-content:flex-end; margin-top:8px;"><button class="btn primary" id="submitComment">Comment</button></div>
+            </div>
+          </div>
+          <div id="commentList">
+            ${stats.comments.map(c => `<div style="display:flex; gap:14px; margin-bottom:20px;"><div class="avatar" style="background:${c.color}">${esc(c.user[0])}</div><div><div style="font-size:13px; margin-bottom:4px;"><b>${esc(c.user)}</b> <span style="color:var(--text-dim); margin-left:6px;">${esc(c.time)}</span></div><div style="font-size:14px;">${esc(c.text)}</div></div></div>`).join('')}
+          </div>
+        </div>
+      </div>
+      <aside class="watch-side">
+        ${VIDEOS.filter(x => x.id !== v.id).map(r => `<div class="mini-card" data-video="${r.id}"><div class="mini-thumb"><img src="${r.thumbnail}" onerror="this.onerror=null; this.src='https://placehold.co/168x94/1f1f1f/FFF?text=Video'"></div><div class="mini-meta"><div class="mini-title">${esc(r.title)}</div><div class="mini-channel">${esc(r.channel)}</div></div></div>`).join('')}
+      </aside>
+    </div>
+  `;
+  
+  $('#likeBtn')?.addEventListener('click', async () => {
+    if (state.liked.has(v.id)) return;
+    state.liked.add(v.id);
+    await addLike(v.id);
+    renderWatch();
+  });
+  
+  $('#submitComment')?.addEventListener('click', async () => {
+    const text = $('#commentInput').value.trim();
+    if (!text) return;
+    await addComment(v.id, window.currentPixlUser?.name || 'You', text);
+    renderWatch();
+  });
+}
+
+// --- INITIALIZATION ---
+// Render immediately so the page is never blank
+renderSidebar();
+renderHome();
+
+document.getElementById('menuBtn').innerHTML = I.menu;
+document.getElementById('searchIconBtn').innerHTML = I.search;
+
+initLoginManager((channel) => {
+    const loginBtn = document.getElementById('pixlect-login');
+    const userDiv = document.getElementById('pixlect-user');
+    
+    if (channel) {
+        loginBtn.classList.add('auth-hidden');
+        userDiv.classList.remove('auth-hidden');
+        
+        // Safe fallback for profile rendering
+        const safeName = channel.name || 'User';
+        const safeColor = channel.avatarColor || '#ff0000';
+        
+        userDiv.innerHTML = `
+            <div class="avatar" style="background:${safeColor}; width:32px; height:32px; font-size:14px;">
+                ${safeName[0].toUpperCase()}
+            </div>
+            <span style="font-weight:500;">${safeName}</span>
+        `;
+        window.currentPixlUser = channel;
+    } else {
+        loginBtn.classList.remove('auth-hidden');
+        userDiv.classList.add('auth-hidden');
+        window.currentPixlUser = null;
+    }
+});
+
+// Global Event Listeners
+document.getElementById('main').addEventListener('click', (e) => {
+  const card = e.target.closest('[data-video]');
+  if (card) { 
+    const allVids = [...VIDEOS, ...MINIS];
+    state.currentVideo = allVids.find(x => x.id === card.dataset.video); 
+    renderWatch(); 
+    return; 
+  }
+  const chip = e.target.closest('[data-chip]');
+  if (chip) { state.chip = chip.dataset.chip; renderHome(); return; }
+});
+
+sidebarEl.addEventListener('click', (e) => {
+  const nav = e.target.closest('[data-nav]');
+  if (nav) {
+    state.activeNav = nav.dataset.nav;
+    renderSidebar();
+    if (nav.dataset.nav === 'Home') renderHome();
+    else if (nav.dataset.nav === 'Minis') renderMinis();
+    else toast(`"${nav.dataset.nav}" view not wired up.`);
+  }
+});
+
+document.getElementById('logoBtn').onclick = (e) => { e.preventDefault(); renderHome(); };
+document.getElementById('menuBtn').onclick = () => {
+  if (window.innerWidth <= 900) sidebarEl.classList.toggle('open');
+  else sidebarEl.classList.toggle('collapsed');
+};
+document.getElementById('searchForm').onsubmit = (e) => {
+  e.preventDefault();
+  state.search = document.getElementById('searchInput').value;
+  renderHome();
+};
+
+// Background Data Fetching
+async function initApp() {
+  await loadEnv();
+  try {
+      const bVids = await fetchVideos();
+      const bMinis = await fetchMinis();
+      const db = await getDatabase();
+      
+      const customVideos = db.videos ? Object.values(db.videos) : [];
+
+      const formatVideo = (file) => {
+        const meta = customVideos.find(v => v.id === file.id) || {};
+        return {
+          ...file,
+          title: meta.title || file.title,
+          thumbnail: meta.thumbnail || file.thumbnail,
+          channel: meta.channelName || file.channel,
+          avatar: meta.channelAvatar || file.avatar,
+          isMini: file.isMini || false
+        };
+      };
+
+      const mergedVids = bVids.map(formatVideo).filter(v => !v.isMini);
+      const mergedMinis = bMinis.map(formatVideo).filter(v => v.isMini);
+
+      if (mergedVids.length) VIDEOS = [...mergedVids, ...VIDEOS];
+      if (mergedMinis.length) MINIS = [...mergedMinis];
+      
+      // Only re-render if we're still on the home page
+      if (state.view === 'home') renderHome();
+  } catch(err) {
+      console.warn("Network issue loading videos (CORS), using fallbacks.", err);
+  }
+}
+
+initApp();
+</script>
+</body>
+</html>

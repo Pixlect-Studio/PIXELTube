@@ -1,0 +1,9 @@
+/* themes/gaming.css */
+:root {
+  --bg: #0a0a0f; --bg-elev: #12121a; --text: #00ffcc; --text-dim: #0088aa;
+  --border: #ff00ff; --hover: #ff00ff33; --chip-bg: #1a1a2e; --accent: #ff0055;
+  --studio-bg: #0a0a0f; --studio-card: #12121a;
+}
+body { text-shadow: 0 0 5px #00ffcc; }
+.logo-text { color: #ff00ff; text-shadow: 0 0 10px #ff00ff; }
+.btn.primary, #pixlect-login { background: #ff00ff; color: #fff; box-shadow: 0 0 10px #ff00ff; }

@@ -1,0 +1,6 @@
+/* themes/white.css */
+:root {
+  --bg: #ffffff; --bg-elev: #f9f9f9; --text: #0f0f0f; --text-dim: #606060;
+  --border: #e0e0e0; --hover: #f0f0f0; --chip-bg: #eeeeee; --accent: #0055ff;
+  --studio-bg: #f4f4f4; --studio-card: #ffffff;
+}

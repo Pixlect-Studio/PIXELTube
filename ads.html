@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PIXEL Ads Manager</title>
+<style>
+  :root { --bg: #0f0f0f; --bg-elev: #212121; --text: #f1f1f1; --border: #303030; --accent: #ffcc00; }
+  body { font-family: Roboto, system-ui, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 24px; display: flex; justify-content: center; }
+  .container { width: 100%; max-width: 800px; }
+  .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; border-bottom: 1px solid var(--border); padding-bottom: 16px; }
+  .header h1 { margin: 0; color: var(--accent); }
+  .header a { color: var(--text); text-decoration: none; background: var(--bg-elev); padding: 8px 16px; border-radius: 8px; border: 1px solid var(--border); }
+  .panel { background: var(--bg-elev); border: 1px solid var(--border); border-radius: 12px; padding: 24px; margin-bottom: 24px; }
+  input { width: 100%; padding: 12px; background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 8px; margin-bottom: 12px; box-sizing: border-box; }
+  button { background: var(--accent); color: #000; border: none; padding: 12px 24px; border-radius: 8px; font-weight: bold; cursor: pointer; width: 100%; }
+  button:hover { opacity: 0.9; }
+  .ad-item { display: flex; gap: 16px; align-items: center; border-bottom: 1px solid var(--border); padding: 16px 0; }
+  .ad-item img { width: 120px; aspect-ratio: 16/9; object-fit: cover; border-radius: 8px; }
+  .ad-info { flex: 1; }
+  .ad-info h4 { margin: 0 0 4px; }
+  .ad-info a { color: var(--accent); font-size: 12px; }
+  .del-btn { background: #ff4444; color: white; padding: 8px 16px; width: auto; border-radius: 20px; }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <div class="header">
+    <h1>PIXEL Ads</h1>
+    <a href="index.html">← Back to PIXELTube</a>
+  </div>
+
+  <div class="panel">
+    <h2>Create New Ad</h2>
+    <input type="text" id="adTitle" placeholder="Ad Title (e.g., Buy Premium Headphones!)">
+    <input type="text" id="adImage" placeholder="Image URL (https://...)">
+    <input type="text" id="adUrl" placeholder="Target URL (https://...)">
+    <button id="saveAdBtn">Publish Ad</button>
+  </div>
+
+  <div class="panel">
+    <h2>Active Ads</h2>
+    <div id="adList">Loading...</div>
+  </div>
+</div>
+
+<script type="module">
+let adsDB = { ads: [] };
+const listEl = document.getElementById('adList');
+
+async function loadAds() {
+    try {
+        const res = await fetch('/api/ads');
+        adsDB = await res.json();
+        if (!adsDB.ads) adsDB.ads = [];
+        renderAds();
+    } catch (e) {
+        listEl.innerHTML = "Error loading ads.";
+    }
+}
+
+function renderAds() {
+    if (adsDB.ads.length === 0) {
+        listEl.innerHTML = "<p>No active ads.</p>";
+        return;
+    }
+    listEl.innerHTML = adsDB.ads.map((ad, index) => `
+        <div class="ad-item">
+            <img src="${ad.imageUrl}" onerror="this.src='https://placehold.co/120x68/222/ffcc00?text=Ad'">
+            <div class="ad-info">
+                <h4>${ad.title}</h4>
+                <a href="${ad.targetUrl}" target="_blank">${ad.targetUrl}</a>
+            </div>
+            <button class="del-btn" data-index="${index}">Delete</button>
+        </div>
+    `).join('');
+
+    document.querySelectorAll('.del-btn').forEach(btn => {
+        btn.onclick = async () => {
+            adsDB.ads.splice(btn.dataset.index, 1);
+            await fetch('/api/ads', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(adsDB)
+            });
+            renderAds();
+        };
+    });
+}
+
+document.getElementById('saveAdBtn').onclick = async () => {
+    const title = document.getElementById('adTitle').value;
+    const imageUrl = document.getElementById('adImage').value;
+    const targetUrl = document.getElementById('adUrl').value;
+
+    if (!title || !imageUrl || !targetUrl) return alert("Fill all fields");
+
+    adsDB.ads.push({ id: 'ad_' + Date.now(), title, imageUrl, targetUrl });
+    
+    await fetch('/api/ads', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(adsDB)
+    });
+
+    document.getElementById('adTitle').value = '';
+    document.getElementById('adImage').value = '';
+    document.getElementById('adUrl').value = '';
+    
+    loadAds();
+    alert("Ad published!");
+};
+
+loadAds();
+</script>
+</body>
+</html>
