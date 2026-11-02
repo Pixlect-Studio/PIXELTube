@@ -1,12 +1,5 @@
-// themes/white.js
-export function apply() {
-    let style = document.getElementById('dynamic-theme');
-    if (!style) {
-        style = document.createElement('style');
-        style.id = 'dynamic-theme';
-        document.head.appendChild(style);
-    }
-    style.innerHTML = `
+export function getCSS() {
+    return `
         :root {
             --bg: #ffffff; --bg-elev: #f9f9f9; --text: #0f0f0f; --text-dim: #606060;
             --border: #e0e0e0; --hover: #f0f0f0; --chip-bg: #eeeeee; --accent: #065fd4;
